@@ -1,0 +1,94 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relationships
+  mainProfiles  FriendProfile[] @relation("MainUserProfile")
+  ghostProfiles FriendProfile[] @relation("GhostUserProfile")
+  categories    Category[]
+  transactions  Transaction[]   @relation("TransactionCreator")
+  ledgerEntries LedgerEntry[]
+
+  @@map("users")
+}
+
+model FriendProfile {
+  id           String  @id @default(uuid()) @db.Uuid
+  mainUserId   String  @map("main_user_id") @db.Uuid
+  friendUserId String? @map("friend_user_id") @db.Uuid
+  name         String
+  isGhost      Boolean @default(false) @map("is_ghost")
+
+  // Relationships
+  mainUser      User          @relation("MainUserProfile", fields: [mainUserId], references: [id], onDelete: Cascade)
+  friendUser    User?         @relation("GhostUserProfile", fields: [friendUserId], references: [id], onDelete: SetNull)
+  ledgerEntries LedgerEntry[]
+
+  @@map("friend_profiles")
+}
+
+model Category {
+  id           String  @id @default(uuid()) @db.Uuid
+  userId       String  @map("user_id") @db.Uuid
+  name         String
+  monthlyLimit Decimal @map("monthly_limit") @db.Decimal(10, 2)
+
+  // Relationships
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@map("categories")
+}
+
+enum TransactionType {
+  EXPENSE
+  SETTLEMENT
+}
+
+model Transaction {
+  id          String          @id @default(uuid()) @db.Uuid
+  creatorId   String          @map("creator_id") @db.Uuid
+  categoryId  String?         @map("category_id") @db.Uuid
+  totalAmount Decimal         @map("total_amount") @db.Decimal(10, 2)
+  type        TransactionType
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  // Relationships
+  creator       User          @relation("TransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  category      Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  ledgerEntries LedgerEntry[]
+
+  @@map("transactions")
+}
+
+enum LedgerEntryType {
+  PAYABLE
+  RECEIVABLE
+  BUDGET_DEDUCTION
+}
+
+model LedgerEntry {
+  id              String          @id @default(uuid()) @db.Uuid
+  transactionId   String          @map("transaction_id") @db.Uuid
+  userId          String          @map("user_id") @db.Uuid
+  friendProfileId String?         @map("friend_profile_id") @db.Uuid
+  amountChange    Decimal         @map("amount_change") @db.Decimal(10, 2)
+  type            LedgerEntryType
+
+  // Relationships
+  transaction   Transaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  friendProfile FriendProfile? @relation(fields: [friendProfileId], references: [id], onDelete: SetNull)
+
+  @@map("ledger_entries")
+}
