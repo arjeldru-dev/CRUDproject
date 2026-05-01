@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from './config/db';
+import authRoutes from './routes/authRoutes';
 
 dotenv.config();
 
@@ -18,6 +19,9 @@ app.use(express.json());
 app.get('/api/health', (req: Request, res: Response) => {
   res.json({ status: 'ok', service: 'Hybrid Ledger API' });
 });
+
+// Authentication routes
+app.use('/api/auth', authRoutes);
 
 app.listen(PORT, async () => {
   try {
