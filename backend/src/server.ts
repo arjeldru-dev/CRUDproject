@@ -6,6 +6,7 @@ import { prisma } from './config/db';
 import authRoutes from './routes/authRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import friendRoutes from './routes/friendRoutes';
+import transactionRoutes from './routes/transactionRoutes';
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use('/api/auth', authRoutes);
 // Protected resource routes (requireAuth is applied inside the router)
 app.use('/api/categories', categoryRoutes);
 app.use('/api/friends', friendRoutes);
+app.use('/api/transactions', transactionRoutes);
 
 app.listen(PORT, async () => {
   try {
