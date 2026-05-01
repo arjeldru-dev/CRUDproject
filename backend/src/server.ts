@@ -4,6 +4,8 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { prisma } from './config/db';
 import authRoutes from './routes/authRoutes';
+import categoryRoutes from './routes/categoryRoutes';
+import friendRoutes from './routes/friendRoutes';
 
 dotenv.config();
 
@@ -22,6 +24,10 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // Authentication routes
 app.use('/api/auth', authRoutes);
+
+// Protected resource routes (requireAuth is applied inside the router)
+app.use('/api/categories', categoryRoutes);
+app.use('/api/friends', friendRoutes);
 
 app.listen(PORT, async () => {
   try {
