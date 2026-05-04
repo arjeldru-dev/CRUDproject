@@ -27,7 +27,7 @@ const Transactions: React.FC = () => {
             </div>
             Transactions
           </h1>
-          <p className="text-zinc-400 mt-1 text-sm">
+          <p className="text-text-secondary mt-1 text-sm">
             Record expenses, split costs, and settle debts.
           </p>
         </div>
@@ -47,15 +47,15 @@ const Transactions: React.FC = () => {
         <button
           onClick={() => setShowForm(true)}
           id="quick-expense"
-          className="group bg-white/[0.03] border border-white/5 rounded-2xl p-6 text-left hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300 cursor-pointer"
+          className="group bg-surface border border-border rounded-2xl p-6 text-left shadow-resting hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
         >
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
             <ArrowLeftRight className="w-6 h-6 text-amber-400" />
           </div>
-          <h3 className="text-base font-semibold text-white mb-1">
+          <h3 className="text-base font-semibold text-text-primary mb-1">
             Record an Expense
           </h3>
-          <p className="text-sm text-zinc-400 leading-relaxed">
+          <p className="text-sm text-text-secondary leading-relaxed">
             Log a purchase, assign it to a category, and optionally split it
             with a friend or ghost profile.
           </p>
@@ -65,15 +65,15 @@ const Transactions: React.FC = () => {
         <button
           onClick={() => setShowForm(true)}
           id="quick-settlement"
-          className="group bg-white/[0.03] border border-white/5 rounded-2xl p-6 text-left hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300 cursor-pointer"
+          className="group bg-surface border border-border rounded-2xl p-6 text-left shadow-resting hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
         >
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
             <Handshake className="w-6 h-6 text-emerald-400" />
           </div>
-          <h3 className="text-base font-semibold text-white mb-1">
+          <h3 className="text-base font-semibold text-text-primary mb-1">
             Settle a Debt
           </h3>
-          <p className="text-sm text-zinc-400 leading-relaxed">
+          <p className="text-sm text-text-secondary leading-relaxed">
             Record a payment to or from a friend to reduce an outstanding
             balance between you.
           </p>
@@ -82,7 +82,7 @@ const Transactions: React.FC = () => {
 
       {/* ── Info Note ────────────────────────────────────────────────── */}
       <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
-        <p className="text-sm text-zinc-500 text-center">
+        <p className="text-sm text-text-secondary text-center">
           All transactions create atomic dual-entry ledger records. Your
           balances and budget limits update automatically.
         </p>

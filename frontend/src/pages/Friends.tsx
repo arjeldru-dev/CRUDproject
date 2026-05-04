@@ -97,7 +97,7 @@ const Friends: React.FC = () => {
           {[...Array(6)].map((_, i) => (
             <div
               key={i}
-              className="h-24 bg-white/[0.03] border border-white/5 rounded-2xl animate-pulse"
+              className="h-24 bg-surface border border-border shadow-resting rounded-2xl animate-pulse"
             />
           ))}
         </div>
@@ -116,7 +116,7 @@ const Friends: React.FC = () => {
             </div>
             Friends & Ghosts
           </h1>
-          <p className="text-zinc-400 mt-1 text-sm">
+          <p className="text-text-secondary mt-1 text-sm">
             Manage the people you split expenses with.
           </p>
         </div>
@@ -157,9 +157,9 @@ const Friends: React.FC = () => {
 
       {/* ── Add Friend Form (Slide-down) ────────────────────────────── */}
       {showForm && (
-        <div className="mb-6 p-5 bg-white/[0.03] border border-white/10 rounded-2xl animate-in">
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-indigo-400" />
+        <div className="mb-6 p-5 bg-surface border border-border shadow-resting rounded-2xl animate-in">
+          <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+            <UserPlus className="w-4 h-4 text-accent-primary" />
             New Friend Profile
           </h3>
 
@@ -184,7 +184,7 @@ const Friends: React.FC = () => {
 
             {/* Ghost Toggle */}
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-zinc-300" htmlFor="ghost-toggle">
+              <label className="text-sm font-medium text-text-secondary" htmlFor="ghost-toggle">
                 Profile Type
               </label>
               <button
@@ -230,14 +230,14 @@ const Friends: React.FC = () => {
       {friends.length > 0 && (
         <div className="mb-5 relative">
           <label htmlFor="friend-search" className="sr-only">Search friends</label>
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
           <input
             type="text"
             placeholder="Search friends..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             id="friend-search"
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-500 text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/60 hover:border-white/20"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-surface border border-border text-text-primary placeholder-text-secondary shadow-sm text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary hover:border-text-secondary/30"
           />
         </div>
       )}
@@ -245,12 +245,12 @@ const Friends: React.FC = () => {
       {/* ── Friend Cards Grid ───────────────────────────────────────── */}
       {friends.length === 0 ? (
         /* Empty State */
-        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/10 rounded-2xl">
+        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border bg-surface/50 rounded-2xl">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center mb-5">
             <Users className="w-8 h-8 text-purple-400" />
           </div>
-          <h3 className="text-lg font-semibold text-white mb-1">No friends yet</h3>
-          <p className="text-sm text-zinc-500 mb-5 text-center max-w-xs">
+          <h3 className="text-lg font-semibold text-text-primary mb-1">No friends yet</h3>
+          <p className="text-sm text-text-secondary mb-5 text-center max-w-xs">
             Add friends or ghost profiles to start splitting expenses with them.
           </p>
           <Button
@@ -265,8 +265,8 @@ const Friends: React.FC = () => {
         /* Search — No Results */
         <div className="flex flex-col items-center justify-center py-16">
           <Search className="w-8 h-8 text-zinc-600 mb-3" />
-          <p className="text-sm text-zinc-500">
-            No friends match "<span className="text-zinc-300">{search}</span>".
+          <p className="text-sm text-text-secondary">
+            No friends match "<span className="text-text-secondary">{search}</span>".
           </p>
         </div>
       ) : (
@@ -274,7 +274,7 @@ const Friends: React.FC = () => {
           {filtered.map((friend) => (
             <div
               key={friend.id}
-              className="group bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300"
+              className="group bg-surface border border-border rounded-2xl p-5 shadow-resting hover:shadow-md hover:-translate-y-0.5 transition-all duration-300"
             >
               <div className="flex items-center gap-3">
                 {/* Avatar */}
@@ -285,7 +285,7 @@ const Friends: React.FC = () => {
                     ${
                       friend.isGhost
                         ? 'bg-gradient-to-br from-purple-500 to-pink-500'
-                        : 'bg-gradient-to-br from-emerald-500 to-teal-500'
+                        : 'bg-gradient-to-br from-emerald-400 to-accent-positive'
                     }
                   `}
                 >
@@ -297,10 +297,10 @@ const Friends: React.FC = () => {
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-white truncate">
+                  <p className="text-sm font-semibold text-text-primary truncate">
                     {friend.name}
                   </p>
-                  <p className="text-xs text-zinc-500">
+                  <p className="text-xs text-text-secondary">
                     {friend.isGhost ? 'Ghost Profile' : 'Linked User'}
                   </p>
                 </div>

@@ -227,10 +227,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               <Receipt className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-white">
+              <h2 className="text-lg font-bold text-text-primary">
                 {mode === 'expense' ? 'New Expense' : 'Settle Debt'}
               </h2>
-              <p className="text-xs text-zinc-500">
+              <p className="text-xs text-text-secondary">
                 {mode === 'expense'
                   ? 'Record an expense and split it'
                   : 'Settle an outstanding balance'}
@@ -240,7 +240,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
           <button
             onClick={onClose}
             id="transaction-form-close"
-            className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-white/10 transition-all duration-200 cursor-pointer"
+            className="p-2 rounded-xl text-text-secondary hover:text-white hover:bg-white/10 transition-all duration-200 cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
@@ -252,10 +252,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
             <div className="w-16 h-16 rounded-full bg-emerald-500/20 flex items-center justify-center mb-4 animate-bounce">
               <CheckCircle2 className="w-8 h-8 text-emerald-400" />
             </div>
-            <h3 className="text-lg font-bold text-white mb-1">
+            <h3 className="text-lg font-bold text-text-primary mb-1">
               Transaction Recorded!
             </h3>
-            <p className="text-sm text-zinc-400">
+            <p className="text-sm text-text-secondary">
               {fmt(parsedAmount)} {mode === 'expense' ? 'expense' : 'settlement'} saved successfully.
             </p>
           </div>
@@ -284,7 +284,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                   className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer ${
                     mode === 'expense'
                       ? 'bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 shadow-sm'
-                      : 'text-zinc-500 hover:text-zinc-300'
+                      : 'text-text-secondary hover:text-text-secondary'
                   }`}
                 >
                   <Receipt className="w-4 h-4" />
@@ -297,7 +297,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                   className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer ${
                     mode === 'settlement'
                       ? 'bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-300 shadow-sm'
-                      : 'text-zinc-500 hover:text-zinc-300'
+                      : 'text-text-secondary hover:text-text-secondary'
                   }`}
                 >
                   <Handshake className="w-4 h-4" />
@@ -307,7 +307,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
 
               {/* ── Amount Input ───────────────────────────────────────── */}
               <div className="relative">
-                <DollarSign className="absolute left-3.5 top-[38px] w-4 h-4 text-zinc-500" />
+                <DollarSign className="absolute left-3.5 top-[38px] w-4 h-4 text-text-secondary" />
                 <Input
                   label="Amount"
                   type="number"
@@ -326,13 +326,13 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                 <div className="flex flex-col gap-1.5">
                   <label
                     htmlFor="transaction-category"
-                    className="text-sm font-medium text-zinc-300 flex items-center gap-2"
+                    className="text-sm font-medium text-text-secondary flex items-center gap-2"
                   >
-                    <Tag className="w-3.5 h-3.5 text-indigo-400" />
+                    <Tag className="w-3.5 h-3.5 text-accent-primary" />
                     Budget Category
                   </label>
                   {categories.length === 0 ? (
-                    <p className="text-xs text-zinc-500 italic py-2">
+                    <p className="text-xs text-text-secondary italic py-2">
                       No categories found. Create one in the Budget page first.
                     </p>
                   ) : (
@@ -340,9 +340,9 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       id="transaction-category"
                       value={categoryId}
                       onChange={(e) => setCategoryId(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/60 hover:border-white/20 cursor-pointer appearance-none"
+                      className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary hover:border-text-secondary/30 cursor-pointer appearance-none"
                     >
-                      <option value="" className="bg-zinc-900 text-zinc-500">
+                      <option value="" className="bg-zinc-900 text-text-secondary">
                         Select category…
                       </option>
                       {categories.map((c) => (
@@ -363,7 +363,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               <div className="flex flex-col gap-1.5">
                 <label
                   htmlFor="transaction-friend"
-                  className="text-sm font-medium text-zinc-300 flex items-center gap-2"
+                  className="text-sm font-medium text-text-secondary flex items-center gap-2"
                 >
                   <Users className="w-3.5 h-3.5 text-purple-400" />
                   {mode === 'expense' ? 'Split With' : 'Settle With'}
@@ -381,7 +381,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 cursor-pointer ${
                         isSolo
                           ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
-                          : 'bg-white/5 text-zinc-500 border border-white/10 hover:text-zinc-300'
+                          : 'bg-white/5 text-text-secondary border border-white/10 hover:text-text-secondary'
                       }`}
                     >
                       Solo Expense
@@ -392,7 +392,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                 {(!isSolo || mode === 'settlement') && (
                   <>
                     {friends.length === 0 ? (
-                      <p className="text-xs text-zinc-500 italic py-2">
+                      <p className="text-xs text-text-secondary italic py-2">
                         No friends found. Add one in the Friends page first.
                       </p>
                     ) : (
@@ -402,7 +402,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                         onChange={(e) => setFriendId(e.target.value)}
                         className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500/60 hover:border-white/20 cursor-pointer appearance-none"
                       >
-                        <option value="" className="bg-zinc-900 text-zinc-500">
+                        <option value="" className="bg-zinc-900 text-text-secondary">
                           Select friend…
                         </option>
                         {friends.map((f) => (
@@ -423,7 +423,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               {/* ── Payer Toggle (Expense + Friend Only) ────────────────── */}
               {mode === 'expense' && !isSolo && friendId && (
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                  <label className="text-sm font-medium text-text-secondary flex items-center gap-2">
                     <ArrowLeftRight className="w-3.5 h-3.5 text-cyan-400" />
                     Who Paid?
                   </label>
@@ -434,8 +434,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       id="payer-self"
                       className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer border ${
                         payerType === 'self'
-                          ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/40'
-                          : 'bg-white/5 text-zinc-500 border-white/10 hover:border-white/20'
+                          ? 'bg-indigo-500/15 text-accent-primary-hover border-indigo-500/40'
+                          : 'bg-white/5 text-text-secondary border-white/10 hover:border-white/20'
                       }`}
                     >
                       I Paid
@@ -447,7 +447,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       className={`flex-1 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer border ${
                         payerType === 'friend'
                           ? 'bg-purple-500/15 text-purple-300 border-purple-500/40'
-                          : 'bg-white/5 text-zinc-500 border-white/10 hover:border-white/20'
+                          : 'bg-white/5 text-text-secondary border-white/10 hover:border-white/20'
                       }`}
                     >
                       Friend Paid
@@ -459,7 +459,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               {/* ── Split Ratio Slider (Expense + Friend Only) ──────────── */}
               {mode === 'expense' && !isSolo && friendId && (
                 <div className="flex flex-col gap-2">
-                  <label htmlFor="split-ratio-slider" className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                  <label htmlFor="split-ratio-slider" className="text-sm font-medium text-text-secondary flex items-center gap-2">
                     <Percent className="w-3.5 h-3.5 text-teal-400" />
                     Your Share: {splitRatio}%
                   </label>
@@ -489,16 +489,16 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                   {parsedAmount > 0 && (
                     <div className="flex items-center gap-3 mt-1 p-3 bg-white/[0.03] border border-white/5 rounded-xl">
                       <div className="flex-1 text-center">
-                        <p className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">
+                        <p className="text-[10px] uppercase tracking-wider text-text-secondary mb-0.5">
                           You
                         </p>
-                        <p className="text-sm font-bold text-indigo-300">
+                        <p className="text-sm font-bold text-accent-primary-hover">
                           {fmt(userShare)}
                         </p>
                       </div>
                       <div className="w-px h-8 bg-white/10" />
                       <div className="flex-1 text-center">
-                        <p className="text-[10px] uppercase tracking-wider text-zinc-500 mb-0.5">
+                        <p className="text-[10px] uppercase tracking-wider text-text-secondary mb-0.5">
                           Friend
                         </p>
                         <p className="text-sm font-bold text-purple-300">
@@ -513,7 +513,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               {/* ── Ledger Impact Preview ──────────────────────────────── */}
               {parsedAmount > 0 && (
                 <div className="p-3 bg-white/[0.02] border border-white/5 rounded-xl space-y-1.5">
-                  <p className="text-[10px] uppercase tracking-wider text-zinc-500 font-medium">
+                  <p className="text-[10px] uppercase tracking-wider text-text-secondary font-medium">
                     Ledger Impact
                   </p>
                   {mode === 'settlement' ? (

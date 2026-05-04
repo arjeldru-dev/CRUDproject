@@ -158,7 +158,7 @@ const Categories: React.FC = () => {
           {[...Array(6)].map((_, i) => (
             <div
               key={i}
-              className="h-32 bg-white/[0.03] border border-white/5 rounded-2xl animate-pulse"
+              className="h-32 bg-surface border border-border shadow-resting rounded-2xl animate-pulse"
             />
           ))}
         </div>
@@ -172,12 +172,12 @@ const Categories: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center shadow-lg">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-400 to-accent-primary flex items-center justify-center shadow-lg">
               <Wallet className="w-5 h-5 text-white" />
             </div>
             Budget Categories
           </h1>
-          <p className="text-zinc-400 mt-1 text-sm">
+          <p className="text-text-secondary mt-1 text-sm">
             Define your spending categories and monthly limits.
           </p>
         </div>
@@ -218,9 +218,9 @@ const Categories: React.FC = () => {
 
       {/* ── Add Category Form ───────────────────────────────────────── */}
       {showForm && (
-        <div className="mb-6 p-5 bg-white/[0.03] border border-white/10 rounded-2xl">
-          <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-            <Tag className="w-4 h-4 text-indigo-400" />
+        <div className="mb-6 p-5 bg-surface border border-border shadow-resting rounded-2xl">
+          <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
+            <Tag className="w-4 h-4 text-accent-primary" />
             New Budget Category
           </h3>
 
@@ -275,14 +275,14 @@ const Categories: React.FC = () => {
       {categories.length > 0 && (
         <div className="mb-5 relative">
           <label htmlFor="category-search" className="sr-only">Search categories</label>
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
           <input
             type="text"
             placeholder="Search categories..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             id="category-search"
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-zinc-500 text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/60 hover:border-white/20"
+            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-surface border border-border text-text-primary placeholder-text-secondary shadow-sm text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary hover:border-text-secondary/30"
           />
         </div>
       )}
@@ -290,14 +290,14 @@ const Categories: React.FC = () => {
       {/* ── Category Cards Grid ─────────────────────────────────────── */}
       {categories.length === 0 ? (
         /* Empty State */
-        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/10 rounded-2xl">
+        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border bg-surface/50 rounded-2xl">
           <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-indigo-500/20 to-blue-500/20 flex items-center justify-center mb-5">
-            <Wallet className="w-8 h-8 text-indigo-400" />
+            <Wallet className="w-8 h-8 text-accent-primary" />
           </div>
-          <h3 className="text-lg font-semibold text-white mb-1">
+          <h3 className="text-lg font-semibold text-text-primary mb-1">
             No categories yet
           </h3>
-          <p className="text-sm text-zinc-500 mb-5 text-center max-w-xs">
+          <p className="text-sm text-text-secondary mb-5 text-center max-w-xs">
             Create budget categories to start tracking your spending limits.
           </p>
           <Button
@@ -312,9 +312,9 @@ const Categories: React.FC = () => {
         /* Search — No Results */
         <div className="flex flex-col items-center justify-center py-16">
           <Search className="w-8 h-8 text-zinc-600 mb-3" />
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-text-secondary">
             No categories match "
-            <span className="text-zinc-300">{search}</span>".
+            <span className="text-text-secondary">{search}</span>".
           </p>
         </div>
       ) : (
@@ -325,21 +325,21 @@ const Categories: React.FC = () => {
             return (
               <div
                 key={cat.id}
-                className="group bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300"
+                className="group bg-surface border border-border rounded-2xl p-5 shadow-resting hover:shadow-md hover:-translate-y-0.5 transition-all duration-300"
               >
                 {/* Top row — Name + Edit trigger */}
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-400 to-accent-primary flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
                       <Tag className="w-4 h-4 text-white" />
                     </div>
-                    <p className="text-sm font-semibold text-white">{cat.name}</p>
+                    <p className="text-sm font-semibold text-text-primary">{cat.name}</p>
                   </div>
 
                   {!isEditing && (
                     <button
                       onClick={() => startEditing(cat)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 p-1.5 rounded-lg hover:bg-white/10 text-text-secondary hover:text-white cursor-pointer"
                       aria-label={`Edit ${cat.name} limit`}
                     >
                       <Pencil className="w-3.5 h-3.5" />
@@ -373,7 +373,7 @@ const Categories: React.FC = () => {
                     </button>
                     <button
                       onClick={cancelEditing}
-                      className="p-1.5 rounded-lg bg-white/5 text-zinc-400 hover:bg-white/10 transition-colors cursor-pointer"
+                      className="p-1.5 rounded-lg bg-white/5 text-text-secondary hover:bg-white/10 transition-colors cursor-pointer"
                       aria-label="Cancel edit"
                     >
                       <X className="w-4 h-4" />
@@ -381,8 +381,8 @@ const Categories: React.FC = () => {
                   </div>
                 ) : (
                   <div>
-                    <p className="text-xs text-zinc-500 mb-0.5">Monthly Limit</p>
-                    <p className="text-xl font-bold text-white tracking-tight">
+                    <p className="text-xs text-text-secondary mb-0.5">Monthly Limit</p>
+                    <p className="text-xl font-bold text-text-primary tracking-tight">
                       {fmt(cat.monthlyLimit)}
                     </p>
                   </div>
