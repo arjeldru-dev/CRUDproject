@@ -1,10 +1,17 @@
 import React from 'react';
-import { Outlet, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { LogOut, LayoutDashboard } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Wallet } from 'lucide-react';
+
+/** Navigation items rendered in the top bar. */
+const navItems = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/friends', label: 'Friends', icon: Users },
+  { to: '/categories', label: 'Budget', icon: Wallet },
+];
 
 /**
- * Dashboard shell with a top nav bar, user info, and logout.
+ * Dashboard shell with a top nav bar, page links, user info, and logout.
  * Renders child routes via <Outlet />.
  */
 const DashboardLayout: React.FC = () => {
@@ -22,12 +29,36 @@ const DashboardLayout: React.FC = () => {
       <nav className="sticky top-0 z-50 bg-zinc-900/80 backdrop-blur-lg border-b border-white/5">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
-            {/* Brand */}
-            <div className="flex items-center gap-3">
-              <LayoutDashboard className="w-5 h-5 text-indigo-400" />
-              <span className="font-semibold text-lg tracking-tight">
-                Hybrid Ledger
-              </span>
+            {/* Brand + Nav Links */}
+            <div className="flex items-center gap-6">
+              {/* Brand */}
+              <div className="flex items-center gap-3">
+                <LayoutDashboard className="w-5 h-5 text-indigo-400" />
+                <span className="font-semibold text-lg tracking-tight">
+                  Hybrid Ledger
+                </span>
+              </div>
+
+              {/* Page Navigation */}
+              <div className="hidden sm:flex items-center gap-1">
+                {navItems.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    id={`nav-${item.label.toLowerCase()}`}
+                    className={({ isActive }) =>
+                      `flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
+                        isActive
+                          ? 'bg-white/10 text-white'
+                          : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                      }`
+                    }
+                  >
+                    <item.icon className="w-4 h-4" />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
             </div>
 
             {/* User Info + Logout */}
@@ -46,6 +77,26 @@ const DashboardLayout: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Mobile Bottom Navigation */}
+        <div className="sm:hidden flex items-center justify-around border-t border-white/5 py-1">
+          {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                  isActive
+                    ? 'text-indigo-400'
+                    : 'text-zinc-500 hover:text-white'
+                }`
+              }
+            >
+              <item.icon className="w-4 h-4" />
+              {item.label}
+            </NavLink>
+          ))}
+        </div>
       </nav>
 
       {/* Page Content */}
@@ -57,3 +108,4 @@ const DashboardLayout: React.FC = () => {
 };
 
 export default DashboardLayout;
+

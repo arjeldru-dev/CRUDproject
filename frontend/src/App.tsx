@@ -5,6 +5,8 @@ import DashboardLayout from './components/layout/DashboardLayout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
+import Friends from './pages/Friends';
+import Categories from './pages/Categories';
 
 /**
  * Root application component — defines all routes.
@@ -24,6 +26,8 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/friends" element={<Friends />} />
+            <Route path="/categories" element={<Categories />} />
           </Route>
         </Route>
 
