@@ -1,13 +1,14 @@
 import React from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
-import { LogOut, LayoutDashboard, Users, Wallet } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Wallet, Receipt } from 'lucide-react';
 
 /** Navigation items rendered in the top bar. */
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/friends', label: 'Friends', icon: Users },
   { to: '/categories', label: 'Budget', icon: Wallet },
+  { to: '/transactions', label: 'Transactions', icon: Receipt },
 ];
 
 /**

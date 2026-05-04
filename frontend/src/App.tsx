@@ -7,6 +7,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Friends from './pages/Friends';
 import Categories from './pages/Categories';
+import Transactions from './pages/Transactions';
 
 /**
  * Root application component — defines all routes.
@@ -28,6 +29,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/friends" element={<Friends />} />
             <Route path="/categories" element={<Categories />} />
+            <Route path="/transactions" element={<Transactions />} />
           </Route>
         </Route>
 
