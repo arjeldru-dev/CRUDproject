@@ -1,12 +1,36 @@
-import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import AuthLayout from './components/layout/AuthLayout';
+import ProtectedRoute from './components/layout/ProtectedRoute';
+import DashboardLayout from './components/layout/DashboardLayout';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Dashboard from './pages/Dashboard';
 
+/**
+ * Root application component — defines all routes.
+ * Auth pages use AuthLayout; protected pages use DashboardLayout.
+ */
 function App() {
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-      <h1 className="text-4xl font-bold text-blue-600">
-        Hybrid Ledger MVP
-      </h1>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        {/* Public auth routes */}
+        <Route element={<AuthLayout />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+        </Route>
+
+        {/* Protected routes */}
+        <Route element={<ProtectedRoute />}>
+          <Route element={<DashboardLayout />}>
+            <Route path="/dashboard" element={<Dashboard />} />
+          </Route>
+        </Route>
+
+        {/* Catch-all: redirect to dashboard (ProtectedRoute handles auth check) */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
 
