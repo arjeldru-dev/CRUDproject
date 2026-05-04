@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Backend for Hybrid Ledger MVP",
   "main": "src/server.ts",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node dist/server.js",
     "dev": "nodemon src/server.ts",

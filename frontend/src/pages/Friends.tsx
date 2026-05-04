@@ -229,6 +229,7 @@ const Friends: React.FC = () => {
       {/* ── Search Bar (only when friends exist) ────────────────────── */}
       {friends.length > 0 && (
         <div className="mb-5 relative">
+          <label htmlFor="friend-search" className="sr-only">Search friends</label>
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
           <input
             type="text"

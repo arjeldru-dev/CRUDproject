@@ -274,6 +274,7 @@ const Categories: React.FC = () => {
       {/* ── Search Bar ──────────────────────────────────────────────── */}
       {categories.length > 0 && (
         <div className="mb-5 relative">
+          <label htmlFor="category-search" className="sr-only">Search categories</label>
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
           <input
             type="text"
@@ -349,6 +350,7 @@ const Categories: React.FC = () => {
                 {/* Monthly Limit */}
                 {isEditing ? (
                   <div className="flex items-center gap-2">
+                    <label htmlFor={`edit-limit-${cat.id}`} className="sr-only">Edit limit for {cat.name}</label>
                     <input
                       type="number"
                       value={editLimit}

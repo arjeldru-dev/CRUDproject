@@ -459,7 +459,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               {/* ── Split Ratio Slider (Expense + Friend Only) ──────────── */}
               {mode === 'expense' && !isSolo && friendId && (
                 <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+                  <label htmlFor="split-ratio-slider" className="text-sm font-medium text-zinc-300 flex items-center gap-2">
                     <Percent className="w-3.5 h-3.5 text-teal-400" />
                     Your Share: {splitRatio}%
                   </label>

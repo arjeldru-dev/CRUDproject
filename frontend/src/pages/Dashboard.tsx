@@ -204,14 +204,16 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Budget Status Section ────────────────────────────────────── */}
-      {budgetStatuses.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Wallet className="w-4 h-4 text-indigo-400" />
-            Budget Status — This Month
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* ── Two-Column Layout for Desktop ────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        {/* ── Budget Status Section ────────────────────────────────────── */}
+        {budgetStatuses.length > 0 && (
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Wallet className="w-4 h-4 text-indigo-400" />
+              Budget Status — This Month
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {budgetStatuses.map((bs) => {
               const pct =
                 bs.monthlyLimit > 0
@@ -264,16 +266,16 @@ const Dashboard: React.FC = () => {
             })}
           </div>
         </div>
-      )}
+        )}
 
-      {/* ── Balances Section ──────────────────────────────────────────── */}
-      {balances.length > 0 && (
-        <div className="mb-8">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Users className="w-4 h-4 text-purple-400" />
-            Friend Balances
-          </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {/* ── Balances Section ──────────────────────────────────────────── */}
+        {balances.length > 0 && (
+          <div>
+            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+              <Users className="w-4 h-4 text-purple-400" />
+              Friend Balances
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {balances.map((b) => (
               <div
                 key={b.friendProfileId}
@@ -311,6 +313,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       )}
+      </div>
 
       {/* ── Feature Cards (Shown when no data) ────────────────────────── */}
       {balances.length === 0 && budgetStatuses.length === 0 && !dataLoading && (
