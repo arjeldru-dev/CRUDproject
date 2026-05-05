@@ -3,15 +3,19 @@ import React from 'react';
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label: string;
   error?: string;
+  leftIcon?: React.ReactNode;
+  hideLabel?: boolean;
 }
 
 /**
  * Reusable input with label and error display.
- * High-contrast design for accessibility (WCAG AA).
+ * Soft geometry styling with rounded corners and subtle borders.
  */
 const Input: React.FC<InputProps> = ({
   label,
   error,
+  leftIcon,
+  hideLabel,
   id,
   className = '',
   ...props
@@ -23,28 +27,36 @@ const Input: React.FC<InputProps> = ({
     <div className="flex flex-col gap-1.5">
       <label
         htmlFor={inputId}
-        className="text-sm font-medium text-zinc-300"
+        className={`text-sm font-medium text-muted tracking-wide ${hideLabel ? 'sr-only' : ''}`}
       >
         {label}
       </label>
-      <input
-        id={inputId}
-        className={`
-          w-full px-4 py-2.5 rounded-xl
-          bg-white/5 border text-white placeholder-zinc-500
-          transition-all duration-200 ease-out
-          focus:outline-none focus:ring-2 focus:ring-offset-0
-          ${
-            error
-              ? 'border-red-500/60 focus:ring-red-500/40 focus:border-red-500'
-              : 'border-white/10 focus:ring-indigo-500/40 focus:border-indigo-500/60 hover:border-white/20'
-          }
-          ${className}
-        `}
-        {...props}
-      />
+      <div className="relative">
+        {leftIcon && (
+          <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted">
+            {leftIcon}
+          </div>
+        )}
+        <input
+          id={inputId}
+          className={`
+            w-full py-3.5 pr-4 rounded-xl
+            bg-surface border border-border-subtle text-foreground placeholder-muted/60 font-medium
+            transition-all duration-200 ease-out
+            focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10
+            ${
+              error
+                ? 'border-error focus:border-error focus:ring-error/10'
+                : 'hover:border-border'
+            }
+            ${className}
+          `}
+          style={{ paddingLeft: leftIcon ? '3.5rem' : '1.25rem', ...props.style }}
+          {...props}
+        />
+      </div>
       {error && (
-        <p className="text-xs text-red-400 mt-0.5" role="alert">
+        <p className="text-xs text-error mt-0.5" role="alert">
           {error}
         </p>
       )}

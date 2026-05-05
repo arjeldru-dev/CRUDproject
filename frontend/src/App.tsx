@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard';
 import Friends from './pages/Friends';
 import Categories from './pages/Categories';
 import Transactions from './pages/Transactions';
+import { ThemeInitializer } from './components/ThemeInitializer';
 
 /**
  * Root application component — defines all routes.
@@ -16,6 +17,7 @@ import Transactions from './pages/Transactions';
 function App() {
   return (
     <BrowserRouter>
+      <ThemeInitializer />
       <Routes>
         {/* Public auth routes */}
         <Route element={<AuthLayout />}>

@@ -9,17 +9,17 @@ interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<string, string> = {
   primary:
-    'bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg shadow-indigo-500/25 hover:from-indigo-600 hover:to-purple-700 hover:shadow-indigo-500/40 active:scale-[0.98]',
+    'bg-primary text-white font-semibold hover:bg-primary/90 shadow-sm hover:shadow-md active:scale-[0.98]',
   outline:
-    'border border-white/20 text-white hover:bg-white/10 active:scale-[0.98]',
+    'border border-border text-foreground font-semibold hover:bg-surface hover:border-primary/40 active:scale-[0.98]',
   ghost:
-    'text-zinc-400 hover:text-white hover:bg-white/5 active:scale-[0.98]',
+    'text-muted font-semibold hover:text-foreground hover:bg-surface active:scale-[0.98]',
 };
 
 const sizeClasses: Record<string, string> = {
-  sm: 'px-3 py-1.5 text-sm rounded-lg',
-  md: 'px-5 py-2.5 text-sm rounded-xl',
-  lg: 'px-6 py-3 text-base rounded-xl',
+  sm: 'px-4 py-2.5 text-sm rounded-lg',
+  md: 'px-6 py-3 text-[0.9rem] rounded-xl',
+  lg: 'px-8 py-4 text-base rounded-xl',
 };
 
 /**

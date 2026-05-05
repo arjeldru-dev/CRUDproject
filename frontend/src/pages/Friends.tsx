@@ -85,19 +85,19 @@ const Friends: React.FC = () => {
   // ── Skeleton Loader ─────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div>
-        <div className="flex items-center justify-between mb-8">
+      <div className="animate-fadeInFast">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
           <div>
-            <div className="h-7 w-48 bg-white/5 rounded-lg animate-pulse" />
-            <div className="h-4 w-72 bg-white/5 rounded-lg animate-pulse mt-2" />
+            <div className="h-9 w-48 bg-surface-hover rounded-lg animate-pulse mb-2" />
+            <div className="h-4 w-72 bg-surface rounded-lg animate-pulse" />
           </div>
-          <div className="h-10 w-32 bg-white/5 rounded-xl animate-pulse" />
+          <div className="h-10 w-32 bg-surface-hover rounded-xl animate-pulse" />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
             <div
               key={i}
-              className="h-24 bg-surface border border-border shadow-resting rounded-2xl animate-pulse"
+              className="h-20 bg-surface rounded-xl animate-pulse"
             />
           ))}
         </div>
@@ -106,18 +106,15 @@ const Friends: React.FC = () => {
   }
 
   return (
-    <div>
+    <div className="animate-fadeInFast">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
-              <Users className="w-5 h-5 text-white" />
-            </div>
+          <h1 className="text-fluid-h1 font-display font-semibold text-foreground tracking-tight">
             Friends & Ghosts
           </h1>
-          <p className="text-text-secondary mt-1 text-sm">
-            Manage the people you split expenses with.
+          <p className="text-muted text-base font-medium mt-1">
+            Manage the people you split expenses with
           </p>
         </div>
         <Button
@@ -138,17 +135,19 @@ const Friends: React.FC = () => {
         </Button>
       </div>
 
+      <div className="divider mb-8" />
+
       {/* ── Error Banner ────────────────────────────────────────────── */}
       {error && (
         <div
-          className="flex items-center gap-2 p-3 mb-5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm"
+          className="flex items-center gap-2 p-4 mb-6 rounded-xl bg-error/10 border border-error/20 text-error text-sm"
           role="alert"
         >
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
           <button
             onClick={fetchFriends}
-            className="ml-auto text-xs underline hover:text-red-300 transition-colors cursor-pointer"
+            className="ml-auto text-xs font-medium underline hover:text-error/80 transition-colors cursor-pointer"
           >
             Retry
           </button>
@@ -157,15 +156,14 @@ const Friends: React.FC = () => {
 
       {/* ── Add Friend Form (Slide-down) ────────────────────────────── */}
       {showForm && (
-        <div className="mb-6 p-5 bg-surface border border-border shadow-resting rounded-2xl animate-in">
-          <h3 className="text-sm font-semibold text-text-primary mb-4 flex items-center gap-2">
-            <UserPlus className="w-4 h-4 text-accent-primary" />
+        <div className="mb-8 p-6 bg-surface border border-border-subtle rounded-2xl animate-slideDownIn">
+          <h3 className="text-base font-display font-semibold text-foreground mb-5 flex items-center gap-2">
             New Friend Profile
           </h3>
 
           {formError && (
-            <div className="flex items-center gap-2 p-2.5 mb-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs" role="alert">
-              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+            <div className="flex items-center gap-2 p-3 mb-5 rounded-xl bg-error/10 border border-error/20 text-error text-sm" role="alert">
+              <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{formError}</span>
             </div>
           )}
@@ -183,8 +181,8 @@ const Friends: React.FC = () => {
             </div>
 
             {/* Ghost Toggle */}
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-text-secondary" htmlFor="ghost-toggle">
+            <div className="flex flex-col gap-1.5 w-full sm:w-auto">
+              <label className="text-xs font-medium text-muted tracking-wide" htmlFor="ghost-toggle">
                 Profile Type
               </label>
               <button
@@ -192,12 +190,12 @@ const Friends: React.FC = () => {
                 id="ghost-toggle"
                 onClick={() => setFormIsGhost((v) => !v)}
                 className={`
-                  flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium
-                  transition-all duration-200 cursor-pointer whitespace-nowrap
+                  flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold
+                  transition-all duration-200 cursor-pointer whitespace-nowrap border
                   ${
                     formIsGhost
-                      ? 'border-purple-500/40 bg-purple-500/10 text-purple-300 hover:bg-purple-500/15'
-                      : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15'
+                      ? 'bg-primary text-white border-primary hover:bg-primary/90'
+                      : 'bg-surface text-foreground border-border hover:bg-surface-hover'
                   }
                 `}
               >
@@ -217,7 +215,7 @@ const Friends: React.FC = () => {
               type="submit"
               isLoading={isSubmitting}
               disabled={isSubmitting}
-              size="md"
+              size="lg"
               id="friend-submit"
             >
               Add
@@ -228,16 +226,16 @@ const Friends: React.FC = () => {
 
       {/* ── Search Bar (only when friends exist) ────────────────────── */}
       {friends.length > 0 && (
-        <div className="mb-5 relative">
-          <label htmlFor="friend-search" className="sr-only">Search friends</label>
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-secondary" />
-          <input
+        <div className="mb-6">
+          <Input
+            label="Search friends"
+            hideLabel
             type="text"
             placeholder="Search friends..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             id="friend-search"
-            className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-surface border border-border text-text-primary placeholder-text-secondary shadow-sm text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary hover:border-text-secondary/30"
+            leftIcon={<Search className="w-5 h-5 text-muted" />}
           />
         </div>
       )}
@@ -245,62 +243,61 @@ const Friends: React.FC = () => {
       {/* ── Friend Cards Grid ───────────────────────────────────────── */}
       {friends.length === 0 ? (
         /* Empty State */
-        <div className="flex flex-col items-center justify-center py-20 border border-dashed border-border bg-surface/50 rounded-2xl">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center mb-5">
-            <Users className="w-8 h-8 text-purple-400" />
+        <div className="flex flex-col items-center justify-center py-20 container-subtle rounded-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
+            <Users className="w-7 h-7 text-primary" />
           </div>
-          <h3 className="text-lg font-semibold text-text-primary mb-1">No friends yet</h3>
-          <p className="text-sm text-text-secondary mb-5 text-center max-w-xs">
+          <h3 className="text-xl font-display font-semibold text-foreground mb-2">No Friends Yet</h3>
+          <p className="text-sm text-muted mb-6 text-center max-w-sm">
             Add friends or ghost profiles to start splitting expenses with them.
           </p>
           <Button
             onClick={() => setShowForm(true)}
-            size="md"
+            size="lg"
             id="add-friend-empty"
           >
-            <Plus className="w-4 h-4" /> Add your first friend
+            <Plus className="w-4 h-4" /> Add Friend
           </Button>
         </div>
       ) : filtered.length === 0 ? (
         /* Search — No Results */
-        <div className="flex flex-col items-center justify-center py-16">
-          <Search className="w-8 h-8 text-zinc-600 mb-3" />
-          <p className="text-sm text-text-secondary">
-            No friends match "<span className="text-text-secondary">{search}</span>".
+        <div className="flex flex-col items-center justify-center py-16 container-subtle rounded-2xl">
+          <Search className="w-8 h-8 text-muted mb-4" />
+          <p className="text-sm text-muted">
+            No friends match "<span className="text-foreground font-medium">{search}</span>"
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-slideUpIn">
           {filtered.map((friend) => (
             <div
               key={friend.id}
-              className="group bg-surface border border-border rounded-2xl p-5 shadow-resting hover:shadow-md hover:-translate-y-0.5 transition-all duration-300"
+              className="group container-card container-card-interactive p-5"
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-4">
                 {/* Avatar */}
                 <div
                   className={`
-                    w-10 h-10 rounded-xl flex items-center justify-center shadow-lg
-                    group-hover:scale-110 transition-transform duration-300
+                    w-10 h-10 flex items-center justify-center rounded-xl
                     ${
                       friend.isGhost
-                        ? 'bg-gradient-to-br from-purple-500 to-pink-500'
-                        : 'bg-gradient-to-br from-emerald-400 to-accent-positive'
+                        ? 'bg-secondary/15 text-secondary'
+                        : 'bg-primary/15 text-primary'
                     }
                   `}
                 >
                   {friend.isGhost ? (
-                    <Ghost className="w-5 h-5 text-white" />
+                    <Ghost className="w-5 h-5" />
                   ) : (
-                    <UserPlus className="w-5 h-5 text-white" />
+                    <UserPlus className="w-5 h-5" />
                   )}
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-text-primary truncate">
+                  <p className="text-sm font-semibold text-foreground truncate">
                     {friend.name}
                   </p>
-                  <p className="text-xs text-text-secondary">
+                  <p className="text-xs text-muted mt-0.5">
                     {friend.isGhost ? 'Ghost Profile' : 'Linked User'}
                   </p>
                 </div>

@@ -1,24 +1,72 @@
-/* ── Google Font: Inter ──────────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* ── Google Fonts: Sora & DM Sans ────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Sora:wght@100..800&display=swap');
 
 @import "tailwindcss";
 
-/* ── Design System Tokens ────────────────────────────────────────── */
+/* ── Design System Tokens: Soft Geometry ─────────────────────────── */
 :root {
-  --color-bg: #09090b;
-  --color-surface: rgba(255, 255, 255, 0.03);
-  --color-border: rgba(255, 255, 255, 0.06);
-  --color-text-primary: #fafafa;
-  --color-text-secondary: #a1a1aa;
-  --color-accent-indigo: #6366f1;
-  --color-accent-purple: #a855f7;
-  --color-error: #ef4444;
+  /* Light Mode (Default) — "Warm Ivory" */
+  --color-bg: #FAF9F7;
+  --color-surface: #F2F0EC;
+  --color-surface-hover: #EBE8E3;
+  --color-border: #D6D2CB;
+  --color-border-subtle: #EDEAE5;
+  --color-text-primary: #1C1917;
+  --color-text-secondary: #6B6560;
+  --color-accent-primary: #5B6BF0;
+  --color-accent-secondary: #D4875C;
+  --color-error: #D05C5C;
+  --color-success: #3D8B6E;
+
+  /* Spacing Scale */
+  --space-section: clamp(2rem, 5vw, 4rem);
+  --space-group: clamp(1.25rem, 3vw, 2rem);
+  --space-item: clamp(0.5rem, 1.5vw, 1rem);
+  --pad-dense: clamp(0.75rem, 2vw, 1rem);
+  --pad-normal: clamp(1rem, 3vw, 1.5rem);
+  --pad-spacious: clamp(1.5rem, 4vw, 2.5rem);
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+}
+
+.dark {
+  /* Dark Mode — "Midnight Study" */
+  --color-bg: #1A1918;
+  --color-surface: #242220;
+  --color-surface-hover: #2E2B28;
+  --color-border: #3A3734;
+  --color-border-subtle: #2D2B28;
+  --color-text-primary: #EDEBE8;
+  --color-text-secondary: #8F8983;
+  --color-accent-primary: #7B8BF7;
+  --color-accent-secondary: #E09B73;
+  --color-error: #E07070;
+  --color-success: #5CB88A;
+}
+
+@theme {
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-text-primary);
+  --color-muted: var(--color-text-secondary);
+  --color-surface: var(--color-surface);
+  --color-surface-hover: var(--color-surface-hover);
+  --color-border: var(--color-border);
+  --color-border-subtle: var(--color-border-subtle);
+  --color-primary: var(--color-accent-primary);
+  --color-secondary: var(--color-accent-secondary);
+  --color-error: var(--color-error);
+  --color-success: var(--color-success);
+
+  --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-display: 'Sora', 'DM Sans', system-ui, sans-serif;
 }
 
 /* ── Base Styles ─────────────────────────────────────────────────── */
-*,
-*::before,
-*::after {
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
@@ -31,39 +79,121 @@ html {
 }
 
 body {
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-sans);
   background-color: var(--color-bg);
   color: var(--color-text-primary);
   line-height: 1.6;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-/* ── Focus Visible Ring (Accessibility) ──────────────────────────── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+
+/* ── Typography Utilities (Fluid) ────────────────────────────────── */
+.text-fluid-hero {
+  font-size: clamp(3rem, 8vw + 0.5rem, 5.5rem);
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.text-fluid-h1 {
+  font-size: clamp(2rem, 5vw + 0.5rem, 3.25rem);
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+}
+
+.text-fluid-h2 {
+  font-size: clamp(1.5rem, 3vw + 0.5rem, 2.25rem);
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+}
+
+/* ── Container System (Replacing Editorial Borders) ──────────────── */
+.container-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.container-card:hover {
+  border-color: var(--color-border);
+}
+
+.container-card-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+.container-subtle {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+}
+
+.container-outlined {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* ── Dividers ────────────────────────────────────────────────────── */
+.divider {
+  height: 1px;
+  background: var(--color-border-subtle);
+  border: none;
+}
+
+.divider-strong {
+  height: 1px;
+  background: var(--color-border);
+  border: none;
+}
+
+/* ── Accessibility ───────────────────────────────────────────────── */
 :focus-visible {
-  outline: 2px solid var(--color-accent-indigo);
+  outline: 2px solid var(--color-accent-primary);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
-/* ── Selection Styling ───────────────────────────────────────────── */
 ::selection {
-  background-color: rgba(99, 102, 241, 0.3);
-  color: white;
+  background-color: var(--color-accent-primary);
+  color: #fff;
 }
 
-/* ── Scrollbar (Webkit) ──────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
+/* ── Scrollbar ───────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-border);
   border-radius: 3px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+/* ── Animations ──────────────────────────────────────────────────── */
+@keyframes slideDownIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
+
+@keyframes slideUpIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInFast {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.animate-slideDownIn { animation: slideDownIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-slideUpIn { animation: slideUpIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-fadeInFast { animation: fadeInFast 0.25s ease-out both; }
+.animate-scaleIn { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }

@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
-import TransactionForm from '../components/TransactionForm';
+import React from 'react';
+import { useUiStore } from '../store/uiStore';
 import Button from '../components/ui/Button';
 import {
-  Receipt,
   Plus,
   ArrowLeftRight,
   Handshake,
@@ -14,88 +13,75 @@ import {
  * via the TransactionForm modal.
  */
 const Transactions: React.FC = () => {
-  const [showForm, setShowForm] = useState(false);
+  const { openTransactionForm } = useUiStore();
 
   return (
-    <div>
+    <div className="animate-fadeInFast">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-lg">
-              <Receipt className="w-5 h-5 text-white" />
-            </div>
+          <h1 className="text-fluid-h1 font-display font-semibold text-foreground tracking-tight">
             Transactions
           </h1>
-          <p className="text-text-secondary mt-1 text-sm">
-            Record expenses, split costs, and settle debts.
+          <p className="text-muted text-base font-medium mt-1">
+            Record expenses, split costs, and settle debts
           </p>
         </div>
         <Button
-          onClick={() => setShowForm(true)}
+          onClick={openTransactionForm}
           size="md"
           id="add-transaction-page-btn"
         >
           <Plus className="w-4 h-4" />
-          New Transaction
+          New Log
         </Button>
       </div>
 
-      {/* ── Action Cards ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-8">
-        {/* Expense Card */}
+      <div className="divider mb-8" />
+
+      {/* ── Action Grid ────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+        {/* Expense Block */}
         <button
-          onClick={() => setShowForm(true)}
+          onClick={openTransactionForm}
           id="quick-expense"
-          className="group bg-surface border border-border rounded-2xl p-6 text-left shadow-resting hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
+          className="group container-card container-card-interactive text-left p-10 cursor-pointer"
         >
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
-            <ArrowLeftRight className="w-6 h-6 text-amber-400" />
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-5 group-hover:bg-primary/15 transition-colors duration-200">
+            <ArrowLeftRight className="w-7 h-7 text-primary" />
           </div>
-          <h3 className="text-base font-semibold text-text-primary mb-1">
-            Record an Expense
+          <h3 className="text-xl font-display font-semibold text-foreground mb-2">
+            Log an Expense
           </h3>
-          <p className="text-sm text-text-secondary leading-relaxed">
-            Log a purchase, assign it to a category, and optionally split it
-            with a friend or ghost profile.
+          <p className="text-base text-muted leading-relaxed">
+            Record a purchase, assign it to a category, and optionally split the cost with friends or ghosts.
           </p>
         </button>
 
-        {/* Settlement Card */}
+        {/* Settlement Block */}
         <button
-          onClick={() => setShowForm(true)}
+          onClick={openTransactionForm}
           id="quick-settlement"
-          className="group bg-surface border border-border rounded-2xl p-6 text-left shadow-resting hover:shadow-md hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
+          className="group container-card container-card-interactive text-left p-10 cursor-pointer"
         >
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-teal-500/20 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
-            <Handshake className="w-6 h-6 text-emerald-400" />
+          <div className="w-14 h-14 rounded-2xl bg-success/10 flex items-center justify-center mb-5 group-hover:bg-success/15 transition-colors duration-200">
+            <Handshake className="w-7 h-7 text-success" />
           </div>
-          <h3 className="text-base font-semibold text-text-primary mb-1">
-            Settle a Debt
+          <h3 className="text-xl font-display font-semibold text-foreground mb-2">
+            Settle Balances
           </h3>
-          <p className="text-sm text-text-secondary leading-relaxed">
-            Record a payment to or from a friend to reduce an outstanding
-            balance between you.
+          <p className="text-base text-muted leading-relaxed">
+            Record a payment to or from a friend to reduce an outstanding balance seamlessly.
           </p>
         </button>
       </div>
 
       {/* ── Info Note ────────────────────────────────────────────────── */}
-      <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
-        <p className="text-sm text-text-secondary text-center">
-          All transactions create atomic dual-entry ledger records. Your
-          balances and budget limits update automatically.
+      <div className="p-6 bg-surface rounded-2xl border border-border-subtle">
+        <p className="text-base text-muted text-center">
+          All transactions create atomic dual-entry ledger records. Your balances and budget limits update automatically.
         </p>
       </div>
-
-      {/* ── Modal ────────────────────────────────────────────────────── */}
-      <TransactionForm
-        isOpen={showForm}
-        onClose={() => setShowForm(false)}
-        onSuccess={() => {
-          // Refresh balances on dashboard when navigated back
-        }}
-      />
     </div>
   );
 };

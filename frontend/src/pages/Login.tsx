@@ -48,21 +48,21 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-white mb-1">Welcome back</h2>
-      <p className="text-sm text-zinc-400 mb-6">
+    <div className="animate-fadeInFast">
+      <h2 className="text-3xl font-display font-semibold text-foreground tracking-tight mb-2">Welcome Back</h2>
+      <p className="text-base text-muted mb-8">
         Sign in to your account to continue
       </p>
 
       {/* Error Banner */}
       {error && (
-        <div className="flex items-center gap-2 p-3 mb-5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm" role="alert">
+        <div className="flex items-center gap-2 p-3.5 mb-6 rounded-xl bg-error/10 border border-error/20 text-error text-sm" role="alert">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form onSubmit={handleSubmit} className="flex flex-col gap-6">
         <Input
           label="Email"
           type="email"
@@ -95,13 +95,13 @@ const Login: React.FC = () => {
         </Button>
       </form>
 
-      <p className="text-center text-sm text-zinc-500 mt-6">
+      <p className="text-center text-base text-muted mt-8">
         Don&apos;t have an account?{' '}
         <Link
           to="/register"
-          className="text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+          className="text-primary hover:text-primary/80 transition-colors font-medium"
         >
-          Create one
+          Create One
         </Link>
       </p>
     </div>

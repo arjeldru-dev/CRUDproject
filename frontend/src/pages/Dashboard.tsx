@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
-import TransactionForm from '../components/TransactionForm';
+import { useUiStore } from '../store/uiStore';
 import Button from '../components/ui/Button';
 import {
   Wallet,
@@ -36,9 +36,7 @@ interface BudgetStatus {
  */
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
-
-  // ── Transaction Modal State ───────────────────────────────────────────
-  const [showTransactionForm, setShowTransactionForm] = useState(false);
+  const { openTransactionForm, transactionTimestamp } = useUiStore();
 
   // ── Data State ────────────────────────────────────────────────────────
   const [balances, setBalances] = useState<Balance[]>([]);
@@ -62,21 +60,17 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
+  // ── Auto-Refresh on Global Transaction Complete ───────────────────────
   useEffect(() => {
     fetchDashboardData();
-  }, [fetchDashboardData]);
-
-  // ── Success Handler ───────────────────────────────────────────────────
-  const handleTransactionSuccess = () => {
-    fetchDashboardData();
-  };
+  }, [fetchDashboardData, transactionTimestamp]);
 
   // ── Utility ───────────────────────────────────────────────────────────
   const fmt = (n: number) =>
-    new Intl.NumberFormat('en-US', {
+    new Intl.NumberFormat('en-PH', {
       style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 0,
+      currency: 'PHP',
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(n);
 
@@ -85,19 +79,16 @@ const Dashboard: React.FC = () => {
       icon: Wallet,
       title: 'Budget Tracker',
       description: 'Monitor your spending categories and limits in real-time.',
-      color: 'from-indigo-500 to-blue-500',
     },
     {
       icon: Users,
       title: 'Split Expenses',
       description: 'Track shared costs and settle debts with friends.',
-      color: 'from-purple-500 to-pink-500',
     },
     {
       icon: TrendingUp,
       title: 'Balance Overview',
       description: 'See who owes you and what you owe at a glance.',
-      color: 'from-emerald-500 to-teal-500',
     },
   ];
 
@@ -110,97 +101,96 @@ const Dashboard: React.FC = () => {
   );
 
   return (
-    <div>
-      {/* ── Welcome Section ──────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+    <div className="animate-fadeInFast">
+      {/* ── Welcome Header ──────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">
-            Welcome back
-            {user?.email ? `, ${user.email.split('@')[0]}` : ''}
+          <h1 className="text-fluid-h1 text-foreground font-display font-semibold tracking-tight">
+            Overview
           </h1>
-          <p className="text-zinc-400 mt-1">
-            Here's an overview of your financial activity.
+          <p className="text-muted text-base font-medium mt-1">
+            {user?.email ? `${user.email.split('@')[0]}'s ` : ''}financial activity
           </p>
         </div>
         <Button
-          onClick={() => setShowTransactionForm(true)}
+          onClick={openTransactionForm}
           size="md"
           id="add-transaction-btn"
         >
           <Plus className="w-4 h-4" />
-          Add Transaction
+          Add Log
         </Button>
       </div>
 
-      {/* ── Summary Cards ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+      <div className="divider mb-8" />
+
+      {/* ── Summary Grid ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
         {/* Total Owed To You */}
-        <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center shadow-lg">
-              <ArrowDownRight className="w-5 h-5 text-white" />
+        <div className="md:col-span-2 container-card p-6 md:p-8 hover:border-success/30 transition-colors duration-300">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center">
+              <ArrowDownRight className="w-6 h-6 text-success" />
             </div>
-            <p className="text-xs uppercase tracking-wider text-zinc-500 font-medium">
+            <p className="text-base font-medium text-muted">
               Owed to You
             </p>
           </div>
-          <p className="text-2xl font-bold text-emerald-400 tracking-tight">
+          <p className="text-fluid-hero text-success font-display font-semibold tracking-tight">
             {dataLoading ? (
-              <span className="inline-block h-7 w-24 bg-white/5 rounded animate-pulse" />
+              <span className="inline-block h-14 w-40 bg-surface-hover rounded-lg animate-pulse" />
             ) : (
-              fmt(totalOwed)
+              `+${fmt(totalOwed)}`
             )}
           </p>
-          <p className="text-xs text-zinc-500 mt-1">
-            From {positiveBalances.length} friend
-            {positiveBalances.length !== 1 ? 's' : ''}
+          <p className="text-sm font-medium text-muted mt-3">
+            From {positiveBalances.length} friend{positiveBalances.length !== 1 ? 's' : ''}
           </p>
         </div>
 
-        {/* Total You Owe */}
-        <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-red-500 to-rose-500 flex items-center justify-center shadow-lg">
-              <ArrowUpRight className="w-5 h-5 text-white" />
+        {/* Right Column — You Owe + Active Budgets */}
+        <div className="flex flex-col gap-4">
+          <div className="container-card p-6 hover:border-error/30 transition-colors duration-300 flex-1">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-11 h-11 rounded-xl bg-error/10 flex items-center justify-center">
+                <ArrowUpRight className="w-6 h-6 text-error" />
+              </div>
+              <p className="text-base font-medium text-muted">
+                You Owe
+              </p>
             </div>
-            <p className="text-xs uppercase tracking-wider text-zinc-500 font-medium">
-              You Owe
+            <p className="text-fluid-h2 text-error font-display font-semibold tracking-tight">
+              {dataLoading ? (
+                <span className="inline-block h-8 w-28 bg-surface-hover rounded-lg animate-pulse" />
+              ) : (
+                `-${fmt(totalOwe)}`
+              )}
+            </p>
+            <p className="text-sm font-medium text-muted mt-2">
+              To {negativeBalances.length} friend{negativeBalances.length !== 1 ? 's' : ''}
             </p>
           </div>
-          <p className="text-2xl font-bold text-red-400 tracking-tight">
-            {dataLoading ? (
-              <span className="inline-block h-7 w-24 bg-white/5 rounded animate-pulse" />
-            ) : (
-              fmt(totalOwe)
-            )}
-          </p>
-          <p className="text-xs text-zinc-500 mt-1">
-            To {negativeBalances.length} friend
-            {negativeBalances.length !== 1 ? 's' : ''}
-          </p>
-        </div>
 
-        {/* Active Categories */}
-        <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-5 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-500 flex items-center justify-center shadow-lg">
-              <Receipt className="w-5 h-5 text-white" />
+          <div className="container-card p-6 hover:border-primary/30 transition-colors duration-300 flex-1">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
+                <Receipt className="w-6 h-6 text-primary" />
+              </div>
+              <p className="text-base font-medium text-muted">
+                Active Budgets
+              </p>
             </div>
-            <p className="text-xs uppercase tracking-wider text-zinc-500 font-medium">
-              Budget Categories
+            <p className="text-fluid-h2 text-foreground font-display font-semibold tracking-tight">
+              {dataLoading ? (
+                <span className="inline-block h-8 w-12 bg-surface-hover rounded-lg animate-pulse" />
+              ) : (
+                budgetStatuses.length
+              )}
+            </p>
+            <p className="text-sm font-medium text-muted mt-2">
+              {budgetStatuses.filter((b) => b.remaining > 0).length} within limit
             </p>
           </div>
-          <p className="text-2xl font-bold text-white tracking-tight">
-            {dataLoading ? (
-              <span className="inline-block h-7 w-12 bg-white/5 rounded animate-pulse" />
-            ) : (
-              budgetStatuses.length
-            )}
-          </p>
-          <p className="text-xs text-zinc-500 mt-1">
-            {budgetStatuses.filter((b) => b.remaining > 0).length} within
-            budget
-          </p>
         </div>
       </div>
 
@@ -209,11 +199,10 @@ const Dashboard: React.FC = () => {
         {/* ── Budget Status Section ────────────────────────────────────── */}
         {budgetStatuses.length > 0 && (
           <div>
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Wallet className="w-4 h-4 text-indigo-400" />
-              Budget Status — This Month
+            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-5">
+              Budget Status
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-3">
             {budgetStatuses.map((bs) => {
               const pct =
                 bs.monthlyLimit > 0
@@ -224,40 +213,40 @@ const Dashboard: React.FC = () => {
               return (
                 <div
                   key={bs.categoryId}
-                  className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300"
+                  className="container-card p-4 hover:border-border transition-colors duration-200"
                 >
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-white">
+                  <div className="flex items-end justify-between mb-3">
+                    <p className="text-sm font-semibold text-foreground">
                       {bs.categoryName}
                     </p>
                     <p
-                      className={`text-xs font-medium ${
-                        isOverBudget ? 'text-red-400' : 'text-emerald-400'
+                      className={`text-xs font-semibold ${
+                        isOverBudget ? 'text-error' : 'text-success'
                       }`}
                     >
-                      {fmt(bs.remaining)} left
+                      {bs.remaining >= 0 ? '+' : ''}{fmt(bs.remaining)} left
                     </p>
                   </div>
 
                   {/* Progress Bar */}
-                  <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
+                  <div className="w-full h-2 bg-surface-hover rounded-full overflow-hidden">
                     <div
                       className={`h-full rounded-full transition-all duration-500 ${
                         isOverBudget
-                          ? 'bg-gradient-to-r from-red-500 to-rose-500'
+                          ? 'bg-error'
                           : pct > 75
-                            ? 'bg-gradient-to-r from-amber-500 to-orange-500'
-                            : 'bg-gradient-to-r from-indigo-500 to-blue-500'
+                            ? 'bg-secondary'
+                            : 'bg-primary'
                       }`}
                       style={{ width: `${pct}%` }}
                     />
                   </div>
 
-                  <div className="flex items-center justify-between mt-2">
-                    <p className="text-[10px] text-zinc-500">
+                  <div className="flex items-center justify-between mt-3">
+                    <p className="text-xs text-muted">
                       Spent: {fmt(bs.spent)}
                     </p>
-                    <p className="text-[10px] text-zinc-500">
+                    <p className="text-xs text-muted">
                       Limit: {fmt(bs.monthlyLimit)}
                     </p>
                   </div>
@@ -271,41 +260,40 @@ const Dashboard: React.FC = () => {
         {/* ── Balances Section ──────────────────────────────────────────── */}
         {balances.length > 0 && (
           <div>
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Users className="w-4 h-4 text-purple-400" />
+            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-5">
               Friend Balances
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="flex flex-col gap-3">
             {balances.map((b) => (
               <div
                 key={b.friendProfileId}
-                className="bg-white/[0.03] border border-white/5 rounded-2xl p-4 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300 flex items-center gap-4"
+                className="container-card container-card-interactive p-4 flex items-center gap-4"
               >
                 <div
-                  className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-lg shrink-0 ${
+                  className={`w-10 h-10 flex items-center justify-center shrink-0 rounded-xl ${
                     b.netBalance >= 0
-                      ? 'bg-gradient-to-br from-emerald-500 to-teal-500'
-                      : 'bg-gradient-to-br from-red-500 to-rose-500'
+                      ? 'bg-success/10 text-success'
+                      : 'bg-error/10 text-error'
                   }`}
                 >
                   {b.netBalance >= 0 ? (
-                    <ArrowDownRight className="w-5 h-5 text-white" />
+                    <ArrowDownRight className="w-5 h-5" />
                   ) : (
-                    <ArrowUpRight className="w-5 h-5 text-white" />
+                    <ArrowUpRight className="w-5 h-5" />
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-white truncate">
+                  <p className="text-sm font-semibold text-foreground truncate">
                     {b.friendName}
                   </p>
                   <p
-                    className={`text-xs ${
-                      b.netBalance >= 0 ? 'text-emerald-400' : 'text-red-400'
+                    className={`text-xs font-medium mt-0.5 ${
+                      b.netBalance >= 0 ? 'text-success' : 'text-error'
                     }`}
                   >
                     {b.netBalance >= 0
-                      ? `Owes you ${fmt(b.netBalance)}`
-                      : `You owe ${fmt(Math.abs(b.netBalance))}`}
+                      ? `Owes you +${fmt(b.netBalance)}`
+                      : `You owe -${fmt(Math.abs(b.netBalance))}`}
                   </p>
                 </div>
               </div>
@@ -317,51 +305,40 @@ const Dashboard: React.FC = () => {
 
       {/* ── Feature Cards (Shown when no data) ────────────────────────── */}
       {balances.length === 0 && budgetStatuses.length === 0 && !dataLoading && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 mb-8">
+        <div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
             {featureCards.map((card) => (
               <div
                 key={card.title}
-                className="group bg-white/[0.03] border border-white/5 rounded-2xl p-6 hover:bg-white/[0.06] hover:border-white/10 transition-all duration-300"
+                className="container-card p-6 group"
               >
-                <div
-                  className={`w-10 h-10 rounded-xl bg-gradient-to-br ${card.color} flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform duration-300`}
-                >
-                  <card.icon className="w-5 h-5 text-white" />
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors duration-200">
+                  <card.icon className="w-5 h-5 text-primary" />
                 </div>
-                <h3 className="text-base font-semibold text-white mb-1">
+                <h3 className="text-base font-display font-semibold text-foreground mb-1.5">
                   {card.title}
                 </h3>
-                <p className="text-sm text-zinc-400 leading-relaxed">
+                <p className="text-sm text-muted leading-relaxed">
                   {card.description}
                 </p>
               </div>
             ))}
           </div>
-
-          <div className="text-center py-12 border border-dashed border-white/10 rounded-2xl">
-            <p className="text-zinc-500 text-sm mb-3">
-              Start by adding categories and friends, then record your first
-              transaction.
+          <div className="container-subtle text-center py-12 px-6 rounded-2xl">
+            <p className="text-muted text-sm font-medium mb-5">
+              No history yet. Log an expense or create a budget to get started.
             </p>
             <Button
-              onClick={() => setShowTransactionForm(true)}
-              size="md"
+              onClick={openTransactionForm}
+              size="lg"
               id="add-transaction-empty"
             >
               <Plus className="w-4 h-4" />
-              Record your first transaction
+              Log First Transaction
             </Button>
           </div>
-        </>
+        </div>
       )}
-
-      {/* ── Transaction Form Modal ────────────────────────────────────── */}
-      <TransactionForm
-        isOpen={showTransactionForm}
-        onClose={() => setShowTransactionForm(false)}
-        onSuccess={handleTransactionSuccess}
-      />
     </div>
   );
 };
