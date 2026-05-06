@@ -18,23 +18,13 @@ const Transactions: React.FC = () => {
   return (
     <div className="animate-fadeInFast">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-fluid-h1 font-display font-semibold text-foreground tracking-tight">
-            Transactions
-          </h1>
-          <p className="text-muted text-base font-medium mt-1">
-            Record expenses, split costs, and settle debts
-          </p>
-        </div>
-        <Button
-          onClick={openTransactionForm}
-          size="md"
-          id="add-transaction-page-btn"
-        >
-          <Plus className="w-4 h-4" />
-          New Log
-        </Button>
+      <div className="mb-8">
+        <h1 className="text-fluid-h1 font-display font-semibold text-foreground tracking-tight">
+          Transactions
+        </h1>
+        <p className="text-muted text-base font-medium mt-1">
+          Record expenses, split costs, and settle debts
+        </p>
       </div>
 
       <div className="divider mb-8" />
@@ -43,7 +33,7 @@ const Transactions: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
         {/* Expense Block */}
         <button
-          onClick={openTransactionForm}
+          onClick={() => openTransactionForm('expense')}
           id="quick-expense"
           className="group container-card container-card-interactive text-left p-10 cursor-pointer"
         >
@@ -60,7 +50,7 @@ const Transactions: React.FC = () => {
 
         {/* Settlement Block */}
         <button
-          onClick={openTransactionForm}
+          onClick={() => openTransactionForm('settlement')}
           id="quick-settlement"
           className="group container-card container-card-interactive text-left p-10 cursor-pointer"
         >

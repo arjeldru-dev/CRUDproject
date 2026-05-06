@@ -11,6 +11,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Receipt,
+  Handshake,
 } from 'lucide-react';
 
 /** Shape of a balance entry from GET /api/transactions/balances */
@@ -112,14 +113,27 @@ const Dashboard: React.FC = () => {
             {user?.email ? `${user.email.split('@')[0]}'s ` : ''}financial activity
           </p>
         </div>
-        <Button
-          onClick={openTransactionForm}
-          size="md"
-          id="add-transaction-btn"
-        >
-          <Plus className="w-4 h-4" />
-          Add Log
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={() => openTransactionForm('expense')}
+            variant="outline"
+            size="md"
+            id="add-expense-btn"
+            className="flex-1 sm:flex-none"
+          >
+            <Plus className="w-4 h-4" />
+            Log Expense
+          </Button>
+          <Button
+            onClick={() => openTransactionForm('settlement')}
+            size="md"
+            id="add-settlement-btn"
+            className="flex-1 sm:flex-none"
+          >
+            <Handshake className="w-4 h-4" />
+            Settle Balance
+          </Button>
+        </div>
       </div>
 
       <div className="divider mb-8" />
@@ -329,7 +343,7 @@ const Dashboard: React.FC = () => {
               No history yet. Log an expense or create a budget to get started.
             </p>
             <Button
-              onClick={openTransactionForm}
+              onClick={() => openTransactionForm()}
               size="lg"
               id="add-transaction-empty"
             >

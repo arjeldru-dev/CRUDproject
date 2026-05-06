@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Plus } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useUiStore } from '../../store/uiStore';
@@ -71,14 +71,7 @@ const DashboardLayout: React.FC = () => {
 
             {/* User Info + Actions */}
             <div className="flex items-center gap-3">
-              {/* Desktop Quick Action */}
-              <button
-                onClick={openTransactionForm}
-                className="hidden sm:flex items-center justify-center gap-2 px-5 py-2.5 bg-primary text-white font-semibold rounded-xl text-[0.9rem] hover:bg-primary/90 shadow-sm hover:shadow-md transition-all duration-200 active:scale-[0.98] cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>New</span>
-              </button>
+
 
               <button
                 onClick={handleThemeToggle}
@@ -125,16 +118,7 @@ const DashboardLayout: React.FC = () => {
               <span className="text-[10px]">{item.label}</span>
             </NavLink>
           ))}
-          <button
-            onClick={openTransactionForm}
-            className="flex-1 flex flex-col items-center justify-center gap-1 py-3 text-primary text-xs font-semibold cursor-pointer"
-            aria-label="New Transaction"
-          >
-            <div className="w-8 h-8 rounded-xl bg-primary text-white flex items-center justify-center shadow-sm">
-              <Plus className="w-4 h-4" />
-            </div>
-            <span className="text-[10px]">New</span>
-          </button>
+
         </div>
       </nav>
 

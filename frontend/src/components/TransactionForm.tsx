@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
 import Button from './ui/Button';
 import Input from './ui/Input';
 import SuccessOverlay from './SuccessOverlay';
@@ -94,9 +95,11 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     }
   }, [isOpen, fetchData]);
 
+  const { transactionFormMode } = useUiStore();
+
   // ── Reset ─────────────────────────────────────────────────────────────
-  const resetForm = () => {
-    setMode('expense');
+  const resetForm = useCallback(() => {
+    setMode(transactionFormMode);
     setAmount('');
     setCategoryId('');
     setFriendId('');
@@ -105,7 +108,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     setIsSolo(false);
     setFormError('');
     setShowSuccess(false);
-  };
+  }, [transactionFormMode]);
 
   // ── Computed Values ───────────────────────────────────────────────────
   const parsedAmount = parseFloat(amount) || 0;
@@ -264,35 +267,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-5">
-              {/* ── Mode Toggle ───────────────────────────────────────── */}
-              <div className="flex gap-2 p-1 bg-background rounded-xl">
-                  <button
-                  type="button"
-                  onClick={() => setMode('expense')}
-                  id="mode-expense"
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-all duration-200 active:scale-[0.98] cursor-pointer ${
-                    mode === 'expense'
-                      ? 'bg-primary/10 text-primary shadow-sm'
-                      : 'text-muted hover:text-foreground hover:bg-surface-hover'
-                  }`}
-                >
-                  <Receipt className="w-5 h-5" />
-                  Expense
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode('settlement')}
-                  id="mode-settlement"
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-all duration-200 active:scale-[0.98] cursor-pointer ${
-                    mode === 'settlement'
-                      ? 'bg-success/10 text-success shadow-sm'
-                      : 'text-muted hover:text-foreground hover:bg-surface-hover'
-                  }`}
-                >
-                  <Handshake className="w-5 h-5" />
-                  Settlement
-                </button>
-              </div>
+              {/* ── Mode Toggle removed as per user request to keep forms separate ── */}
+
 
               {/* ── Amount Input ───────────────────────────────────────── */}
               <Input
