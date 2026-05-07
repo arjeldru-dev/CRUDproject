@@ -24,15 +24,31 @@ export const register = async (req: Request, res: Response) => {
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Create user
+    // Auto-generate username from email prefix
+    const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 26);
+    let username = emailPrefix.length >= 3 ? emailPrefix : emailPrefix + '___'.slice(0, 3 - emailPrefix.length);
+
+    // Check if username is taken; if so, append random 4-digit suffix
+    const usernameExists = await prisma.user.findFirst({
+      where: { username: { equals: username, mode: 'insensitive' } },
+    });
+    if (usernameExists) {
+      username = `${emailPrefix.slice(0, 26)}${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    // Create user with auto-generated username
     const newUser = await prisma.user.create({
       data: {
         email,
         passwordHash,
+        username,
       },
       select: {
         id: true,
         email: true,
+        username: true,
+        displayName: true,
+        avatarUrl: true,
         createdAt: true,
       },
     });
@@ -80,10 +96,17 @@ export const login = async (req: Request, res: Response) => {
       expiresIn: '1d',
     });
 
-    // Strip password from response
-    const { passwordHash, ...userWithoutPassword } = user;
+    // Build user response with profile fields
+    const userResponse = {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
+      createdAt: user.createdAt,
+    };
 
-    return res.status(200).json({ user: userWithoutPassword, token });
+    return res.status(200).json({ user: userResponse, token });
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json({ error: 'Internal server error' });

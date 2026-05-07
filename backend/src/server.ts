@@ -2,11 +2,13 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import path from 'path';
 import { prisma } from './config/db';
 import authRoutes from './routes/authRoutes';
 import categoryRoutes from './routes/categoryRoutes';
 import friendRoutes from './routes/friendRoutes';
 import transactionRoutes from './routes/transactionRoutes';
+import profileRoutes from './routes/profileRoutes';
 
 dotenv.config();
 
@@ -15,8 +17,11 @@ const PORT = process.env.PORT || 5000;
 
 // Apply middlewares
 app.use(cors({ credentials: true, origin: true }));
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(express.json());
+
+// Serve uploaded files (avatars)
+app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 // Health check route
 app.get('/api/health', (req: Request, res: Response) => {
@@ -30,6 +35,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/transactions', transactionRoutes);
+app.use('/api/profile', profileRoutes);
 
 app.listen(PORT, async () => {
   try {

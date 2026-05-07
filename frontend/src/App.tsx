@@ -8,6 +8,8 @@ import Dashboard from './pages/Dashboard';
 import Friends from './pages/Friends';
 import Categories from './pages/Categories';
 import Transactions from './pages/Transactions';
+import ProfileSettings from './pages/ProfileSettings';
+import PublicProfile from './pages/PublicProfile';
 import { ThemeInitializer } from './components/ThemeInitializer';
 
 /**
@@ -32,6 +34,8 @@ function App() {
             <Route path="/friends" element={<Friends />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/transactions" element={<Transactions />} />
+            <Route path="/settings/profile" element={<ProfileSettings />} />
+            <Route path="/profile/:username" element={<PublicProfile />} />
           </Route>
         </Route>
 

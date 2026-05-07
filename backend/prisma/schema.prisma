@@ -12,6 +12,13 @@ model User {
   passwordHash String   @map("password_hash")
   createdAt    DateTime @default(now()) @map("created_at")
 
+  // Profile fields
+  username    String?  @unique
+  displayName String?  @map("display_name")
+  bio         String?
+  location    String?
+  avatarUrl   String?  @map("avatar_url")
+
   // Relationships
   mainProfiles  FriendProfile[] @relation("MainUserProfile")
   ghostProfiles FriendProfile[] @relation("GhostUserProfile")
@@ -19,6 +26,7 @@ model User {
   transactions  Transaction[]   @relation("TransactionCreator")
   ledgerEntries LedgerEntry[]
 
+  @@index([username])
   @@map("users")
 }
 

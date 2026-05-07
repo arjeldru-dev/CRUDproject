@@ -88,13 +88,6 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     }
   }, []);
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchData();
-      resetForm();
-    }
-  }, [isOpen, fetchData]);
-
   const { transactionFormMode } = useUiStore();
 
   // ── Reset ─────────────────────────────────────────────────────────────
@@ -109,6 +102,13 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     setFormError('');
     setShowSuccess(false);
   }, [transactionFormMode]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchData();
+      resetForm();
+    }
+  }, [isOpen, fetchData, resetForm]);
 
   // ── Computed Values ───────────────────────────────────────────────────
   const parsedAmount = parseFloat(amount) || 0;
@@ -199,9 +199,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
         onSuccess();
         onClose();
       }, 1500);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as { response?: { data?: { error?: string } } };
       const msg =
-        err?.response?.data?.error ||
+        error?.response?.data?.error ||
         'Transaction failed. Please try again.';
       setFormError(msg);
     } finally {

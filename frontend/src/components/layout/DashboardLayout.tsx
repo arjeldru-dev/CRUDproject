@@ -1,10 +1,11 @@
-import React, { useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Edit3, User } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useUiStore } from '../../store/uiStore';
 import TransactionForm from '../TransactionForm';
+import Avatar from '../ui/Avatar';
 
 /** Navigation items rendered in the top bar. */
 const navItems = [
@@ -20,12 +21,27 @@ const navItems = [
 const DashboardLayout: React.FC = () => {
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
-  const { isTransactionFormOpen, openTransactionForm, closeTransactionForm, notifyTransactionComplete } = useUiStore();
+  const { isTransactionFormOpen, closeTransactionForm, notifyTransactionComplete } = useUiStore();
   const navigate = useNavigate();
-  const iconKeyRef = useRef(0);
+
+  // ── Avatar Dropdown ─────────────────────────────────────────────
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showDropdown]);
 
   const handleThemeToggle = () => {
-    iconKeyRef.current += 1;
     toggleTheme();
   };
 
@@ -33,6 +49,8 @@ const DashboardLayout: React.FC = () => {
     logout();
     navigate('/login', { replace: true });
   };
+
+  const avatarName = user?.displayName || user?.email || 'User';
 
   return (
     <div className="min-h-screen bg-background text-foreground transition-colors duration-300 font-sans">
@@ -72,7 +90,6 @@ const DashboardLayout: React.FC = () => {
             {/* User Info + Actions */}
             <div className="flex items-center gap-3">
 
-
               <button
                 onClick={handleThemeToggle}
                 className="p-2 rounded-lg text-muted hover:text-foreground hover:bg-surface transition-all duration-200 cursor-pointer"
@@ -80,22 +97,87 @@ const DashboardLayout: React.FC = () => {
                 aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
               >
                 {theme === 'light'
-                  ? <Moon key={iconKeyRef.current} className="w-5 h-5 animate-fadeInFast" />
-                  : <Sun  key={iconKeyRef.current} className="w-5 h-5 animate-fadeInFast" />}
+                  ? <Moon key="light" className="w-5 h-5 animate-fadeInFast" />
+                  : <Sun  key="dark"  className="w-5 h-5 animate-fadeInFast" />}
               </button>
 
-              <span className="text-sm font-medium text-muted hidden lg:block px-2">
-                {user?.email}
-              </span>
+              {/* Avatar Dropdown */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={() => setShowDropdown((v) => !v)}
+                  className="flex items-center gap-2 p-1 rounded-xl hover:bg-surface transition-all duration-200 cursor-pointer"
+                  id="avatar-dropdown-trigger"
+                  aria-label="Profile menu"
+                >
+                  <Avatar
+                    src={user?.avatarUrl}
+                    name={avatarName}
+                    size="sm"
+                  />
+                  <span className="text-sm font-medium text-muted hidden lg:block pr-1 max-w-[140px] truncate">
+                    {user?.displayName || user?.email}
+                  </span>
+                </button>
 
-              <button
-                onClick={handleLogout}
-                id="logout-button"
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-muted hover:text-error hover:bg-error/5 transition-all duration-200 cursor-pointer"
-              >
-                <LogOut className="w-[18px] h-[18px]" />
-                <span className="hidden sm:inline text-[0.9rem] font-medium">Logout</span>
-              </button>
+                {/* Dropdown Menu */}
+                {showDropdown && (
+                  <div className="absolute right-0 top-full mt-2 w-56 bg-surface border border-border-subtle rounded-xl shadow-lg overflow-hidden animate-scaleIn z-50">
+                    {/* User Info */}
+                    <div className="px-4 py-3 border-b border-border-subtle">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {user?.displayName || user?.email}
+                      </p>
+                      {user?.username && (
+                        <p className="text-xs text-muted truncate">@{user.username}</p>
+                      )}
+                    </div>
+
+                    {/* Menu Items */}
+                    <div className="p-1.5">
+                      <button
+                        onClick={() => {
+                          setShowDropdown(false);
+                          navigate('/settings/profile');
+                        }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-foreground font-medium rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
+                        id="dropdown-edit-profile"
+                      >
+                        <Edit3 className="w-4 h-4 text-muted" />
+                        Edit Profile
+                      </button>
+
+                      {user?.username && (
+                        <button
+                          onClick={() => {
+                            setShowDropdown(false);
+                            navigate(`/profile/${user.username}`);
+                          }}
+                          className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-foreground font-medium rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
+                          id="dropdown-view-profile"
+                        >
+                          <User className="w-4 h-4 text-muted" />
+                          View Profile
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Logout */}
+                    <div className="p-1.5 border-t border-border-subtle">
+                      <button
+                        onClick={() => {
+                          setShowDropdown(false);
+                          handleLogout();
+                        }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-error font-medium rounded-lg hover:bg-error/5 transition-colors cursor-pointer"
+                        id="dropdown-logout"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

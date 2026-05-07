@@ -1,8 +1,6 @@
 import React from 'react';
 import { useUiStore } from '../store/uiStore';
-import Button from '../components/ui/Button';
 import {
-  Plus,
   ArrowLeftRight,
   Handshake,
 } from 'lucide-react';
