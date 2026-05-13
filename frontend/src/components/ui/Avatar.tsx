@@ -6,7 +6,7 @@ interface AvatarProps {
   /** User's display name or email — used for generating initials. */
   name: string;
   /** Size variant of the avatar. */
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   /** Additional CSS classes. */
   className?: string;
   /** Click handler (used for avatar upload trigger). */
@@ -14,6 +14,7 @@ interface AvatarProps {
 }
 
 const sizeMap: Record<string, { container: string; text: string }> = {
+  xs: { container: 'w-6 h-6', text: 'text-[10px]' },
   sm: { container: 'w-8 h-8', text: 'text-xs' },
   md: { container: 'w-10 h-10', text: 'text-sm' },
   lg: { container: 'w-16 h-16', text: 'text-xl' },

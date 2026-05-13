@@ -1,27 +1,29 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { Prisma } from '@prisma/client';
+import { feedService } from '../services/feedService';
+import { createNotification } from '../services/notificationService';
 
 /**
  * POST /api/transactions
  * Creates an expense transaction with atomic dual-entry ledger records.
  *
- * Body: { amount, categoryId, payerId, taggieId, splitRatio }
+ * Body: { amount, categoryId, payerId, splits }
  *   - amount: total expense amount (positive number)
  *   - categoryId: budget category UUID (must belong to req.user)
- *   - payerId: UUID of who paid — either req.user.id or a FriendProfile.id
- *   - taggieId: UUID of who was tagged — either req.user.id or a FriendProfile.id
- *   - splitRatio: 0–1 representing the USER's share (0.5 = 50/50)
+ *   - payerId: UUID of who paid — either req.user.id ('self') or a FriendProfile.id
+ *   - splits: array of objects { profileId: 'self' | string, amount: number }
  */
 export const createExpenseTransaction = async (req: Request, res: Response) => {
   try {
-    const { amount, categoryId, payerId, taggieId, splitRatio } = req.body;
+    console.log('createExpenseTransaction req.body:', req.body);
+    const { amount, categoryId, payerId, splits, message, isPrivate, allowFriendToPrivate } = req.body;
     const userId: string = req.user.id;
 
     // ── Input Validation ──────────────────────────────────────────────
-    if (amount === undefined || !categoryId || !payerId || !taggieId || splitRatio === undefined) {
+    if (amount === undefined || !categoryId || !payerId || !splits || !Array.isArray(splits)) {
       return res.status(400).json({
-        error: 'All fields are required: amount, categoryId, payerId, taggieId, splitRatio',
+        error: 'All fields are required: amount, categoryId, payerId, splits array',
       });
     }
 
@@ -29,8 +31,10 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Amount must be a positive number' });
     }
 
-    if (typeof splitRatio !== 'number' || splitRatio < 0 || splitRatio > 1) {
-      return res.status(400).json({ error: 'splitRatio must be a number between 0 and 1' });
+    // Verify sum of splits matches amount (allow small floating point difference)
+    const splitSum = splits.reduce((acc, split) => acc + (split.amount || 0), 0);
+    if (Math.abs(splitSum - amount) > 0.05) {
+      return res.status(400).json({ error: 'Sum of splits must equal total amount' });
     }
 
     // ── Atomic Transaction ────────────────────────────────────────────
@@ -45,26 +49,8 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
         throw { statusCode: 403, message: 'Forbidden: You do not own this category' };
       }
 
-      // 2. Determine who is the friend in this transaction
-      const userIsPayer = payerId === userId;
-      const userIsTaggie = taggieId === userId;
-      const friendProfileId = userIsPayer ? taggieId : payerId;
-
-      // If there's a friend involved, validate ownership of that FriendProfile
-      const isSoloExpense = payerId === userId && taggieId === userId;
-
-      if (!isSoloExpense) {
-        const friendProfile = await tx.friendProfile.findUnique({
-          where: { id: friendProfileId },
-        });
-
-        if (!friendProfile) {
-          throw { statusCode: 404, message: 'Friend profile not found' };
-        }
-        if (friendProfile.mainUserId !== userId) {
-          throw { statusCode: 403, message: 'Forbidden: You do not own this friend profile' };
-        }
-      }
+      // 2. Determine payer
+      const userIsPayer = payerId === userId || payerId === 'self';
 
       // 3. Create the Transaction record
       const transaction = await tx.transaction.create({
@@ -76,26 +62,14 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
         },
       });
 
-      // 4. Calculate split amounts
-      const totalDecimal = new Prisma.Decimal(amount);
-      const userShare = totalDecimal.mul(new Prisma.Decimal(splitRatio));
-      const friendShare = totalDecimal.sub(userShare);
-
-      // 5. Create LedgerEntry records based on the scenario
+      // 4. Create LedgerEntry records based on splits
       const ledgerEntries: Prisma.LedgerEntryCreateManyInput[] = [];
+      const totalDecimal = new Prisma.Decimal(amount);
+      const notifiedFriends: string[] = [];
 
-      if (isSoloExpense) {
-        // ─── Solo Expense: User paid, no split ───────────────────────
-        ledgerEntries.push({
-          transactionId: transaction.id,
-          userId,
-          friendProfileId: null,
-          amountChange: totalDecimal,
-          type: 'BUDGET_DEDUCTION',
-        });
-      } else if (userIsPayer) {
-        // ─── User Paid, Splitting With Friend ────────────────────────
-        // Budget deduction for the full amount (user fronted the money)
+      if (userIsPayer) {
+        // User paid the full amount: Budget deduction for the FULL amount
+        // (cash left the user's pocket, so the budget drops by the total)
         ledgerEntries.push({
           transactionId: transaction.id,
           userId,
@@ -104,53 +78,254 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
           type: 'BUDGET_DEDUCTION',
         });
 
-        // Friend owes their share back → RECEIVABLE for user
-        if (friendShare.gt(0)) {
+        // Each friend in splits owes the user
+        for (const split of splits) {
+          if (split.profileId === userId || split.profileId === 'self') continue;
+          if (split.amount <= 0) continue;
+
+          const friendShare = new Prisma.Decimal(split.amount);
+
+          // Verify friend profile
+          const friendProfile = await tx.friendProfile.findUnique({
+            where: { id: split.profileId },
+          });
+          if (!friendProfile || friendProfile.mainUserId !== userId) {
+            throw { statusCode: 404, message: `Friend profile ${split.profileId} not found or forbidden` };
+          }
+
+          // User gets RECEIVABLE
           ledgerEntries.push({
             transactionId: transaction.id,
             userId,
-            friendProfileId,
+            friendProfileId: split.profileId,
             amountChange: friendShare,
             type: 'RECEIVABLE',
           });
-        }
-      } else if (userIsTaggie) {
-        // ─── Friend Paid, User Was Tagged ────────────────────────────
-        // Budget deduction for user's share only
-        ledgerEntries.push({
-          transactionId: transaction.id,
-          userId,
-          friendProfileId: null,
-          amountChange: userShare,
-          type: 'BUDGET_DEDUCTION',
-        });
 
-        // User owes the friend their share → PAYABLE for user
-        if (userShare.gt(0)) {
-          ledgerEntries.push({
-            transactionId: transaction.id,
-            userId,
-            friendProfileId,
-            amountChange: userShare,
-            type: 'PAYABLE',
-          });
+          // Mirror: friend owes user
+          if (friendProfile.friendUserId) {
+            if (!notifiedFriends.includes(friendProfile.friendUserId)) {
+               notifiedFriends.push(friendProfile.friendUserId);
+            }
+            let inverseFriendProfile = await tx.friendProfile.findFirst({
+              where: {
+                mainUserId: friendProfile.friendUserId,
+                friendUserId: userId,
+              },
+            });
+
+            if (!inverseFriendProfile) {
+               const currentUser = await tx.user.findUnique({ where: { id: userId } });
+               inverseFriendProfile = await tx.friendProfile.create({
+                 data: {
+                   mainUserId: friendProfile.friendUserId,
+                   friendUserId: userId,
+                   name: currentUser?.displayName || currentUser?.username || 'Friend',
+                   isGhost: false,
+                 }
+               });
+            }
+
+            if (inverseFriendProfile) {
+              ledgerEntries.push({
+                transactionId: transaction.id,
+                userId: friendProfile.friendUserId,
+                friendProfileId: inverseFriendProfile.id,
+                amountChange: friendShare,
+                type: 'PAYABLE',
+              });
+            }
+          }
+        }
+      } else {
+        // A friend paid. We record debts to the payer friend for everyone in the split.
+        const payerProfile = await tx.friendProfile.findUnique({
+          where: { id: payerId },
+        });
+        if (!payerProfile || payerProfile.mainUserId !== userId) {
+           throw { statusCode: 404, message: 'Payer profile not found or forbidden' };
+        }
+        const payerUserId = payerProfile.friendUserId;
+
+        for (const split of splits) {
+          if (split.amount <= 0) continue;
+          if (split.profileId === payerId) continue; // Payer doesn't owe themselves
+          
+          const splitAmount = new Prisma.Decimal(split.amount);
+
+          if (split.profileId === userId || split.profileId === 'self') {
+            // 1. User owes the payer — NO budget deduction yet.
+            //    The user's cash hasn't left their pocket; they'll pay later
+            //    and choose a budget category during settlement.
+
+            ledgerEntries.push({
+              transactionId: transaction.id,
+              userId,
+              friendProfileId: payerId,
+              amountChange: splitAmount,
+              type: 'PAYABLE',
+            });
+
+            if (payerUserId) {
+               if (!notifiedFriends.includes(payerUserId)) {
+                 notifiedFriends.push(payerUserId);
+               }
+               let bProfileForA = await tx.friendProfile.findFirst({
+                 where: { mainUserId: payerUserId, friendUserId: userId }
+               });
+               if (!bProfileForA) {
+                 const currentUser = await tx.user.findUnique({ where: { id: userId } });
+                 bProfileForA = await tx.friendProfile.create({
+                   data: { mainUserId: payerUserId, friendUserId: userId, name: currentUser?.displayName || currentUser?.username || 'Friend', isGhost: false }
+                 });
+               }
+               if (bProfileForA) {
+                 ledgerEntries.push({
+                   transactionId: transaction.id,
+                   userId: payerUserId,
+                   friendProfileId: bProfileForA.id,
+                   amountChange: splitAmount,
+                   type: 'RECEIVABLE',
+                 });
+               }
+            }
+          } else {
+            // 2. A third-party friend owes the payer
+            const splitProfile = await tx.friendProfile.findUnique({
+              where: { id: split.profileId },
+            });
+            if (!splitProfile) continue;
+
+            const cUserId = splitProfile.friendUserId;
+
+            // If both payer and the splitting friend are registered users, they might be friends
+            if (payerUserId && cUserId) {
+              let bProfileForC = await tx.friendProfile.findFirst({
+                where: { mainUserId: payerUserId, friendUserId: cUserId }
+              });
+              if (!bProfileForC) {
+                 bProfileForC = await tx.friendProfile.create({
+                   data: { mainUserId: payerUserId, friendUserId: cUserId, name: splitProfile.name, isGhost: false }
+                 });
+              }
+
+              let cProfileForB = await tx.friendProfile.findFirst({
+                where: { mainUserId: cUserId, friendUserId: payerUserId }
+              });
+              if (!cProfileForB) {
+                 cProfileForB = await tx.friendProfile.create({
+                   data: { mainUserId: cUserId, friendUserId: payerUserId, name: payerProfile.name, isGhost: false }
+                 });
+              }
+
+              if (bProfileForC && cProfileForB) {
+                 // Payer (B) receives from Friend (C)
+                 ledgerEntries.push({
+                   transactionId: transaction.id,
+                   userId: payerUserId,
+                   friendProfileId: bProfileForC.id,
+                   amountChange: splitAmount,
+                   type: 'RECEIVABLE',
+                 });
+                 // Friend (C) owes Payer (B)
+                 ledgerEntries.push({
+                   transactionId: transaction.id,
+                   userId: cUserId,
+                   friendProfileId: cProfileForB.id,
+                   amountChange: splitAmount,
+                   type: 'PAYABLE',
+                 });
+
+                 if (!notifiedFriends.includes(payerUserId)) notifiedFriends.push(payerUserId);
+                 if (!notifiedFriends.includes(cUserId)) notifiedFriends.push(cUserId);
+              }
+            } else {
+               // C is a ghost. A acts as middleman.
+               // A owes B for C's share
+               ledgerEntries.push({
+                 transactionId: transaction.id,
+                 userId,
+                 friendProfileId: payerId,
+                 amountChange: splitAmount,
+                 type: 'PAYABLE',
+               });
+               
+               if (payerUserId) {
+                 let bProfileForA = await tx.friendProfile.findFirst({
+                   where: { mainUserId: payerUserId, friendUserId: userId }
+                 });
+                 if (!bProfileForA) {
+                   const currentUser = await tx.user.findUnique({ where: { id: userId } });
+                   bProfileForA = await tx.friendProfile.create({
+                     data: { mainUserId: payerUserId, friendUserId: userId, name: currentUser?.displayName || currentUser?.username || 'Friend', isGhost: false }
+                   });
+                 }
+                 if (bProfileForA) {
+                   ledgerEntries.push({
+                     transactionId: transaction.id,
+                     userId: payerUserId,
+                     friendProfileId: bProfileForA.id,
+                     amountChange: splitAmount,
+                     type: 'RECEIVABLE',
+                   });
+                   if (!notifiedFriends.includes(payerUserId)) notifiedFriends.push(payerUserId);
+                 }
+               }
+
+               // C owes A for C's share
+               ledgerEntries.push({
+                 transactionId: transaction.id,
+                 userId,
+                 friendProfileId: split.profileId,
+                 amountChange: splitAmount,
+                 type: 'RECEIVABLE',
+               });
+            }
+          }
         }
       }
 
-      // Bulk insert all ledger entries
       await tx.ledgerEntry.createMany({ data: ledgerEntries });
-
-      // Return the full picture
       const createdEntries = await tx.ledgerEntry.findMany({
         where: { transactionId: transaction.id },
       });
 
-      return { transaction, ledgerEntries: createdEntries };
+      return { transaction, ledgerEntries: createdEntries, notifiedFriends };
     });
+
+    // ── Notifications ─────────────────────────────────────────────────
+    for (const friendUserId of result.notifiedFriends) {
+      await createNotification({
+        recipientId: friendUserId,
+        actorId: userId,
+        type: 'ADDED_TO_SPLIT',
+        data: { transactionId: result.transaction.id, amount },
+      });
+    }
+
+    // ── Feed Post Generation ──────────────────────────────────────────
+    const involvedFriendIds = splits
+      .filter((s: any) => s.profileId !== 'self' && s.profileId !== userId)
+      .map((s: any) => s.profileId);
+    if (!result.ledgerEntries.find(le => le.type === 'BUDGET_DEDUCTION' && le.amountChange.toNumber() === amount) && payerId !== 'self' && payerId !== userId && !involvedFriendIds.includes(payerId)) {
+      involvedFriendIds.push(payerId);
+    }
+    
+    // Convert to unique set
+    const uniqueInvolvedFriendIds = Array.from(new Set(involvedFriendIds));
+
+    // Call generateExpensePost with additional friends array
+    feedService.generateExpensePost(result.transaction.id, message, isPrivate, allowFriendToPrivate, uniqueInvolvedFriendIds);
+
+    // Check for budget milestones
+    const budgetEntry = result.ledgerEntries.find(le => le.type === 'BUDGET_DEDUCTION');
+    const budgetDeductionAmount = budgetEntry ? Number(budgetEntry.amountChange) : 0;
+    if (budgetDeductionAmount > 0) {
+      checkBudgetMilestones(userId, categoryId, budgetDeductionAmount);
+    }
 
     return res.status(201).json(result);
   } catch (error: any) {
-    // Handle known business-logic errors thrown inside $transaction
     if (error.statusCode) {
       return res.status(error.statusCode).json({ error: error.message });
     }
@@ -163,24 +338,37 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
  * POST /api/transactions/settle
  * Creates a settlement transaction that offsets an existing debt with a friend.
  *
- * Body: { amount, friendProfileId }
+ * Body: { amount, friendProfileId, payerId, categoryId? }
  *   - amount: the settlement amount (positive number)
  *   - friendProfileId: the friend whose debt is being settled
+ *   - payerId: 'self' if user pays, or friendProfileId if friend pays
+ *   - categoryId: (optional) budget category to deduct from (user pays) or refund to (friend pays)
  */
 export const createSettlement = async (req: Request, res: Response) => {
   try {
-    const { amount, friendProfileId } = req.body;
+    const { amount, friendProfileId, payerId, categoryId, message, isPrivate, allowFriendToPrivate } = req.body;
     const userId: string = req.user.id;
 
     // ── Input Validation ──────────────────────────────────────────────
-    if (amount === undefined || !friendProfileId) {
+    if (amount === undefined || !friendProfileId || !payerId) {
       return res.status(400).json({
-        error: 'All fields are required: amount, friendProfileId',
+        error: 'All fields are required: amount, friendProfileId, payerId',
       });
     }
 
     if (typeof amount !== 'number' || amount <= 0) {
       return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+
+    // Validate categoryId ownership if provided
+    if (categoryId) {
+      const category = await prisma.category.findUnique({ where: { id: categoryId } });
+      if (!category) {
+        return res.status(404).json({ error: 'Budget category not found' });
+      }
+      if (category.userId !== userId) {
+        return res.status(403).json({ error: 'Forbidden: You do not own this category' });
+      }
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -196,57 +384,176 @@ export const createSettlement = async (req: Request, res: Response) => {
         throw { statusCode: 403, message: 'Forbidden: You do not own this friend profile' };
       }
 
-      // Determine the current balance direction to know what type of entry to create
-      const receivables = await tx.ledgerEntry.aggregate({
-        where: { userId, friendProfileId, type: 'RECEIVABLE' },
-        _sum: { amountChange: true },
-      });
-      const payables = await tx.ledgerEntry.aggregate({
-        where: { userId, friendProfileId, type: 'PAYABLE' },
-        _sum: { amountChange: true },
-      });
-
-      const totalReceivable = receivables._sum.amountChange
-        ? new Prisma.Decimal(receivables._sum.amountChange.toString())
-        : new Prisma.Decimal(0);
-      const totalPayable = payables._sum.amountChange
-        ? new Prisma.Decimal(payables._sum.amountChange.toString())
-        : new Prisma.Decimal(0);
-      const netBalance = totalReceivable.sub(totalPayable);
-
       const settlementAmount = new Prisma.Decimal(amount);
 
-      // Create the settlement transaction (no category needed)
+      // Based on who paid, reduce the appropriate debt.
+      // If user paid ('self'), user is reducing their PAYABLE to the friend.
+      // If friend paid (friendProfileId), friend is reducing user's RECEIVABLE from the friend.
+      const ledgerType = payerId === 'self' ? 'PAYABLE' : 'RECEIVABLE';
+      const inverseLedgerType = payerId === 'self' ? 'RECEIVABLE' : 'PAYABLE';
+
+      // Validate that the user has enough balance to settle
+      const currentBalanceAgg = await tx.ledgerEntry.aggregate({
+        where: {
+          userId,
+          friendProfileId,
+          type: ledgerType,
+        },
+        _sum: { amountChange: true },
+      });
+
+      const currentBalance = currentBalanceAgg._sum.amountChange 
+        ? new Prisma.Decimal(currentBalanceAgg._sum.amountChange.toString()) 
+        : new Prisma.Decimal(0);
+
+      if (currentBalance.lessThan(settlementAmount)) {
+        throw { 
+          statusCode: 400, 
+          message: `Invalid settlement: You cannot settle more than your current ${ledgerType.toLowerCase()} balance with this friend.` 
+        };
+      }
+
+      // Create the settlement transaction with optional category
       const transaction = await tx.transaction.create({
         data: {
           creatorId: userId,
-          categoryId: null,
+          categoryId: categoryId || null,
           totalAmount: amount,
           type: 'SETTLEMENT',
         },
       });
 
-      // If net >= 0, friend owed user (or balanced) → friend is paying back → reduce RECEIVABLE
-      // If net < 0, user owed friend → user is paying back → reduce PAYABLE
-      const ledgerType = netBalance.gte(0) ? 'RECEIVABLE' : 'PAYABLE';
+      // Find inverse FriendProfile if the friend is a real user
+      let inverseFriendProfile = null;
+      if (friendProfile.friendUserId) {
+        inverseFriendProfile = await tx.friendProfile.findFirst({
+          where: {
+            mainUserId: friendProfile.friendUserId,
+            friendUserId: userId,
+          },
+        });
+      }
 
       // Settlement entry is negative to offset existing debt
-      await tx.ledgerEntry.create({
-        data: {
+      const entriesToCreate: Prisma.LedgerEntryCreateManyInput[] = [
+        {
           transactionId: transaction.id,
           userId,
           friendProfileId,
           amountChange: settlementAmount.neg(),
           type: ledgerType,
-        },
-      });
+        }
+      ];
+
+      if (inverseFriendProfile) {
+        entriesToCreate.push({
+          transactionId: transaction.id,
+          userId: friendProfile.friendUserId!,
+          friendProfileId: inverseFriendProfile.id,
+          amountChange: settlementAmount.neg(),
+          type: inverseLedgerType,
+        });
+      }
+
+      // ── Budget Impact (for the settlement creator) ─────────────────
+      // If a categoryId was provided, create a budget entry.
+      if (categoryId) {
+        if (payerId === 'self') {
+          // User is paying the friend → cash leaves pocket → DEDUCT from budget
+          entriesToCreate.push({
+            transactionId: transaction.id,
+            userId,
+            friendProfileId: null,
+            amountChange: settlementAmount,
+            type: 'BUDGET_DEDUCTION',
+          });
+        } else {
+          // Friend is paying the user → cash returns to pocket → REFUND to budget
+          entriesToCreate.push({
+            transactionId: transaction.id,
+            userId,
+            friendProfileId: null,
+            amountChange: settlementAmount.neg(),
+            type: 'BUDGET_DEDUCTION',
+          });
+        }
+      }
+
+      await tx.ledgerEntry.createMany({ data: entriesToCreate });
+
+      // ── Auto-refund the OTHER party's budget ─────────────────────────
+      // When someone receives money back, their budget should be restored
+      // using the original expense's category.
+      if (friendProfile.friendUserId && inverseFriendProfile) {
+        // Determine who is receiving money
+        const receiverId = payerId === 'self'
+          ? friendProfile.friendUserId   // Creator pays → friend receives
+          : null;                        // Friend pays → creator receives (handled above via categoryId)
+
+        if (receiverId) {
+          // Find the original expense that created the RECEIVABLE for the receiver
+          const originalEntry = await tx.ledgerEntry.findFirst({
+            where: {
+              userId: receiverId,
+              friendProfileId: inverseFriendProfile.id,
+              type: 'RECEIVABLE',
+              amountChange: { gt: 0 },
+              transaction: {
+                type: 'EXPENSE',
+                categoryId: { not: null },
+              },
+            },
+            include: {
+              transaction: { select: { categoryId: true } },
+            },
+            orderBy: { transaction: { createdAt: 'desc' } },
+          });
+
+          if (originalEntry?.transaction.categoryId) {
+            // Create a budget refund transaction for the receiver
+            // (needs its own transaction record so getBudgetStatus
+            //  attributes the refund to the correct category)
+            const refundTx = await tx.transaction.create({
+              data: {
+                creatorId: receiverId,
+                categoryId: originalEntry.transaction.categoryId,
+                totalAmount: amount,
+                type: 'SETTLEMENT',
+              },
+            });
+
+            await tx.ledgerEntry.create({
+              data: {
+                transactionId: refundTx.id,
+                userId: receiverId,
+                friendProfileId: null,
+                amountChange: settlementAmount.neg(),
+                type: 'BUDGET_DEDUCTION',
+              },
+            });
+          }
+        }
+      }
 
       const createdEntries = await tx.ledgerEntry.findMany({
         where: { transactionId: transaction.id },
       });
 
-      return { transaction, ledgerEntries: createdEntries };
+      return { transaction, ledgerEntries: createdEntries, friendUserId: friendProfile.friendUserId };
     });
+
+    // ── Notifications ─────────────────────────────────────────────────
+    if (result.friendUserId) {
+      await createNotification({
+        recipientId: result.friendUserId,
+        actorId: userId,
+        type: 'BALANCE_CHANGED',
+        data: { transactionId: result.transaction.id, amount },
+      });
+    }
+
+    // ── Feed Post Generation ──────────────────────────────────────────
+    feedService.generateSettlementPost(result.transaction.id, message, isPrivate, allowFriendToPrivate);
 
     return res.status(201).json(result);
   } catch (error: any) {
@@ -288,26 +595,22 @@ export const getBalances = async (req: Request, res: Response) => {
       _sum: { amountChange: true },
     });
 
-    // Merge into a single balance map
-    const balanceMap = new Map<string, Prisma.Decimal>();
+    // Merge into a single balance map containing both receivable and payable
+    const balanceMap = new Map<string, { receivable: Prisma.Decimal; payable: Prisma.Decimal }>();
 
     for (const r of receivables) {
       if (r.friendProfileId) {
-        const current = balanceMap.get(r.friendProfileId) || new Prisma.Decimal(0);
-        balanceMap.set(
-          r.friendProfileId,
-          current.add(r._sum.amountChange || new Prisma.Decimal(0))
-        );
+        const current = balanceMap.get(r.friendProfileId) || { receivable: new Prisma.Decimal(0), payable: new Prisma.Decimal(0) };
+        current.receivable = current.receivable.add(r._sum.amountChange || new Prisma.Decimal(0));
+        balanceMap.set(r.friendProfileId, current);
       }
     }
 
     for (const p of payables) {
       if (p.friendProfileId) {
-        const current = balanceMap.get(p.friendProfileId) || new Prisma.Decimal(0);
-        balanceMap.set(
-          p.friendProfileId,
-          current.sub(p._sum.amountChange || new Prisma.Decimal(0))
-        );
+        const current = balanceMap.get(p.friendProfileId) || { receivable: new Prisma.Decimal(0), payable: new Prisma.Decimal(0) };
+        current.payable = current.payable.add(p._sum.amountChange || new Prisma.Decimal(0));
+        balanceMap.set(p.friendProfileId, current);
       }
     }
 
@@ -320,10 +623,11 @@ export const getBalances = async (req: Request, res: Response) => {
 
     const friendNameMap = new Map(friends.map((f) => [f.id, f.name]));
 
-    const balances = Array.from(balanceMap.entries()).map(([friendProfileId, netBalance]) => ({
+    const balances = Array.from(balanceMap.entries()).map(([friendProfileId, bals]) => ({
       friendProfileId,
       friendName: friendNameMap.get(friendProfileId) || 'Unknown',
-      netBalance: netBalance.toNumber(),
+      receivableBalance: Math.max(0, bals.receivable.toNumber()),
+      payableBalance: Math.max(0, bals.payable.toNumber()),
     }));
 
     return res.status(200).json({ balances });
@@ -393,3 +697,55 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+/**
+ * Helper to check if an expense triggered a 50% or 100% budget milestone.
+ */
+async function checkBudgetMilestones(userId: string, categoryId: string, currentTransactionAmount: number = 0) {
+  try {
+    const category = await prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { monthlyLimit: true },
+    });
+
+    if (!category) return;
+
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+    const deductions = await prisma.ledgerEntry.aggregate({
+      where: {
+        userId,
+        type: 'BUDGET_DEDUCTION',
+        transaction: {
+          categoryId,
+          createdAt: {
+            gte: monthStart,
+            lt: monthEnd,
+          },
+        },
+      },
+      _sum: { amountChange: true },
+    });
+
+    const currentSpent = deductions._sum.amountChange
+      ? new Prisma.Decimal(deductions._sum.amountChange.toString()).toNumber()
+      : 0;
+    const limit = category.monthlyLimit.toNumber();
+
+    if (limit <= 0) return;
+
+    const previousSpent = currentSpent - currentTransactionAmount;
+    const currentPercentage = (currentSpent / limit) * 100;
+    const previousPercentage = (previousSpent / limit) * 100;
+
+    if (previousPercentage < 100 && currentPercentage >= 100) {
+      feedService.generateBudgetMilestonePost(userId, categoryId, 100);
+    } else if (previousPercentage < 50 && currentPercentage >= 50) {
+      feedService.generateBudgetMilestonePost(userId, categoryId, 50);
+    }
+  } catch (error) {
+    console.error('Check budget milestones error:', error);
+  }
+}

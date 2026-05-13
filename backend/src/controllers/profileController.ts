@@ -215,13 +215,89 @@ export const getPublicProfile = async (req: Request, res: Response) => {
 
     if (user.id === req.user.id) {
       friendshipStatus = 'self';
+    } else {
+      // Check if they are friends
+      const friendship = await prisma.friendship.findFirst({
+        where: {
+          OR: [
+            { userAId: req.user.id, userBId: user.id },
+            { userAId: user.id, userBId: req.user.id },
+          ],
+        },
+      });
+
+      if (friendship) {
+        friendshipStatus = 'friends';
+      } else {
+        // Check for pending requests
+        const sentRequest = await prisma.friendRequest.findFirst({
+          where: { senderId: req.user.id, receiverId: user.id, status: 'PENDING' },
+        });
+
+        if (sentRequest) {
+          friendshipStatus = 'pending_sent';
+        } else {
+          const receivedRequest = await prisma.friendRequest.findFirst({
+            where: { senderId: user.id, receiverId: req.user.id, status: 'PENDING' },
+          });
+
+          if (receivedRequest) {
+            friendshipStatus = 'pending_received';
+          }
+        }
+      }
     }
-    // Friendship logic will be expanded in Group 2
+
+    // Count shared splits if friends
+    let sharedSplitCount: number | undefined;
+    let mutualFriendCount: number | undefined;
+
+    if (friendshipStatus === 'friends') {
+      // Count transactions where both users have ledger entries
+      const sharedTransactions = await prisma.transaction.count({
+        where: {
+          ledgerEntries: {
+            some: { userId: req.user.id },
+          },
+          AND: {
+            ledgerEntries: {
+              some: { userId: user.id },
+            },
+          },
+        },
+      });
+      sharedSplitCount = sharedTransactions;
+
+      // Count mutual friends
+      const myFriendships = await prisma.friendship.findMany({
+        where: { OR: [{ userAId: req.user.id }, { userBId: req.user.id }] },
+        select: { userAId: true, userBId: true },
+      });
+      const myFriendIds = new Set(
+        myFriendships.map((f) => (f.userAId === req.user.id ? f.userBId : f.userAId)),
+      );
+
+      const theirFriendships = await prisma.friendship.findMany({
+        where: { OR: [{ userAId: user.id }, { userBId: user.id }] },
+        select: { userAId: true, userBId: true },
+      });
+      const theirFriendIds = new Set(
+        theirFriendships.map((f) => (f.userAId === user.id ? f.userBId : f.userAId)),
+      );
+
+      let mutual = 0;
+      for (const fid of myFriendIds) {
+        if (theirFriendIds.has(fid)) mutual++;
+      }
+      mutualFriendCount = mutual;
+    }
 
     return res.status(200).json({
       profile: {
         ...user,
         friendshipStatus,
+        ...(sharedSplitCount !== undefined && { sharedSplitCount }),
+        ...(mutualFriendCount !== undefined && { mutualFriendCount }),
       },
     });
   } catch (error) {

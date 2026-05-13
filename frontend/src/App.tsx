@@ -10,6 +10,9 @@ import Categories from './pages/Categories';
 import Transactions from './pages/Transactions';
 import ProfileSettings from './pages/ProfileSettings';
 import PublicProfile from './pages/PublicProfile';
+import Feed from './pages/Feed';
+import PrivacySettings from './pages/PrivacySettings';
+import Notifications from './pages/Notifications';
 import { ThemeInitializer } from './components/ThemeInitializer';
 
 /**
@@ -31,11 +34,14 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayout />}>
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/feed" element={<Feed />} />
             <Route path="/friends" element={<Friends />} />
             <Route path="/categories" element={<Categories />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/settings/profile" element={<ProfileSettings />} />
+            <Route path="/settings/privacy" element={<PrivacySettings />} />
             <Route path="/profile/:username" element={<PublicProfile />} />
+            <Route path="/notifications" element={<Notifications />} />
           </Route>
         </Route>
 

@@ -9,6 +9,9 @@ import categoryRoutes from './routes/categoryRoutes';
 import friendRoutes from './routes/friendRoutes';
 import transactionRoutes from './routes/transactionRoutes';
 import profileRoutes from './routes/profileRoutes';
+import feedRoutes from './routes/feedRoutes';
+import notificationRoutes from './routes/notificationRoutes';
+import privacyRoutes from './routes/privacyRoutes';
 
 dotenv.config();
 
@@ -36,6 +39,9 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/friends', friendRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/feed', feedRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/settings', privacyRoutes);
 
 app.listen(PORT, async () => {
   try {

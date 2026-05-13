@@ -4,7 +4,7 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import Avatar from '../components/ui/Avatar';
 import Button from '../components/ui/Button';
-import { AlertCircle, MapPin, Calendar, Edit3, UserPlus, Clock, UserCheck, ArrowLeft } from 'lucide-react';
+import { AlertCircle, MapPin, Calendar, Edit3, UserPlus, Clock, UserCheck, ArrowLeft, Users, ShieldAlert, Ban } from 'lucide-react';
 
 interface PublicProfileData {
   id: string;
@@ -16,6 +16,8 @@ interface PublicProfileData {
   avatarUrl: string | null;
   createdAt: string;
   friendshipStatus: 'none' | 'pending_sent' | 'pending_received' | 'friends' | 'self';
+  sharedSplitCount?: number;
+  mutualFriendCount?: number;
 }
 
 /**
@@ -25,13 +27,14 @@ interface PublicProfileData {
 const PublicProfile: React.FC = () => {
   const { username } = useParams<{ username: string }>();
   const navigate = useNavigate();
-  const { user } = useAuthStore();
+  useAuthStore(); // keeps auth context active; user data fetched via API
 
   const [profile, setProfile] = useState<PublicProfileData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   // ── Fetch Profile ─────────────────────────────────────────────────
   const fetchProfile = useCallback(async () => {
@@ -77,6 +80,69 @@ const PublicProfile: React.FC = () => {
     }
   };
 
+  // ── Action Handlers ────────────────────────────────────────────────
+  const handleSendRequest = async () => {
+    if (!profile) return;
+    setActionLoading(true);
+    try {
+      const res = await api.post('/friends/request', { targetUserId: profile.id });
+      if (res.data.autoAccepted) {
+        setProfile((p) => p ? { ...p, friendshipStatus: 'friends' } : p);
+      } else {
+        setProfile((p) => p ? { ...p, friendshipStatus: 'pending_sent' } : p);
+      }
+    } catch { /* stays in current state */ }
+    finally { setActionLoading(false); }
+  };
+
+  const handleAcceptRequest = async () => {
+    if (!profile) return;
+    setActionLoading(true);
+    try {
+      // Find the pending request from this user
+      const reqRes = await api.get('/friends/requests/received');
+      const pending = reqRes.data.requests.find(
+        (r: { senderId: string }) => r.senderId === profile.id,
+      );
+      if (pending) {
+        await api.post(`/friends/request/${pending.id}/accept`);
+        setProfile((p) => p ? { ...p, friendshipStatus: 'friends' } : p);
+      }
+    } catch { /* stays in current state */ }
+    finally { setActionLoading(false); }
+  };
+
+  const handleBlockUser = async () => {
+    if (!profile) return;
+    if (!window.confirm(`Are you sure you want to block ${profile.displayName || profile.username}? They will no longer be able to see your activity or contact you.`)) return;
+    
+    setActionLoading(true);
+    try {
+      await api.post(`/friends/block/${profile.id}`);
+      navigate('/friends', { replace: true });
+    } catch { 
+      setError('Failed to block user');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReportUser = async () => {
+    if (!profile) return;
+    const reason = window.prompt(`Report ${profile.displayName || profile.username}\nReason (e.g., Spam, Harassment, Inappropriate):`);
+    if (!reason) return;
+
+    setActionLoading(true);
+    try {
+      await api.post(`/friends/report/${profile.id}`, { reason });
+      alert('User reported successfully.');
+    } catch {
+      setError('Failed to report user');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   // ── Action Button Logic ───────────────────────────────────────────
   const renderActionButton = () => {
     if (!profile) return null;
@@ -107,14 +173,14 @@ const PublicProfile: React.FC = () => {
         );
       case 'pending_received':
         return (
-          <Button size="md" id="profile-accept-btn">
+          <Button size="md" onClick={handleAcceptRequest} isLoading={actionLoading} id="profile-accept-btn">
             <UserPlus className="w-4 h-4" /> Accept Request
           </Button>
         );
       case 'none':
       default:
         return (
-          <Button size="md" id="profile-add-btn">
+          <Button size="md" onClick={handleSendRequest} isLoading={actionLoading} id="profile-add-btn">
             <UserPlus className="w-4 h-4" /> Send Friend Request
           </Button>
         );
@@ -221,6 +287,17 @@ const PublicProfile: React.FC = () => {
               month: 'long',
             })}
           </span>
+          {profile.friendshipStatus === 'friends' && profile.sharedSplitCount !== undefined && (
+            <span className="flex items-center gap-1.5 text-primary font-medium">
+              {profile.sharedSplitCount} shared splits
+            </span>
+          )}
+          {profile.friendshipStatus === 'friends' && profile.mutualFriendCount !== undefined && profile.mutualFriendCount > 0 && (
+            <span className="flex items-center gap-1.5">
+              <Users className="w-4 h-4" />
+              {profile.mutualFriendCount} mutual friend{profile.mutualFriendCount !== 1 ? 's' : ''}
+            </span>
+          )}
         </div>
 
         <div className="divider mb-6" />
@@ -238,6 +315,31 @@ const PublicProfile: React.FC = () => {
             >
               {showQR ? 'Hide QR Code' : 'Show QR Code'}
             </Button>
+          )}
+
+          {profile.friendshipStatus !== 'self' && (
+            <>
+              <Button
+                onClick={handleReportUser}
+                variant="ghost"
+                size="md"
+                disabled={actionLoading}
+                className="text-muted hover:text-error hover:bg-error/10"
+              >
+                <ShieldAlert className="w-4 h-4 mr-2" />
+                Report
+              </Button>
+              <Button
+                onClick={handleBlockUser}
+                variant="ghost"
+                size="md"
+                disabled={actionLoading}
+                className="text-muted hover:text-error hover:bg-error/10"
+              >
+                <Ban className="w-4 h-4 mr-2" />
+                Block
+              </Button>
+            </>
           )}
         </div>
 

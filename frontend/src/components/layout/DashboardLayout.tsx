@@ -1,15 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Edit3, User } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Edit3, User, Activity, Bell, Shield } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useUiStore } from '../../store/uiStore';
 import TransactionForm from '../TransactionForm';
 import Avatar from '../ui/Avatar';
+import { useNotificationStore } from '../../store/notificationStore';
+import NotificationPanel from '../social/NotificationPanel';
 
 /** Navigation items rendered in the top bar. */
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/feed', label: 'Feed', icon: Activity },
   { to: '/friends', label: 'Friends', icon: Users },
   { to: '/categories', label: 'Budget', icon: Wallet },
   { to: '/transactions', label: 'Transactions', icon: Receipt },
@@ -22,11 +25,16 @@ const DashboardLayout: React.FC = () => {
   const { user, logout } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
   const { isTransactionFormOpen, closeTransactionForm, notifyTransactionComplete } = useUiStore();
+  const { unreadCount, startPolling, stopPolling, subscribeToPush } = useNotificationStore();
   const navigate = useNavigate();
 
   // ── Avatar Dropdown ─────────────────────────────────────────────
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // ── Notification Dropdown ───────────────────────────────────────
+  const [showNotifications, setShowNotifications] = useState(false);
+  const notificationRef = useRef<HTMLDivElement>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -34,12 +42,23 @@ const DashboardLayout: React.FC = () => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setShowDropdown(false);
       }
+      if (notificationRef.current && !notificationRef.current.contains(e.target as Node)) {
+        setShowNotifications(false);
+      }
     };
-    if (showDropdown) {
+    if (showDropdown || showNotifications) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showDropdown]);
+  }, [showDropdown, showNotifications]);
+
+  // ── Notification Polling ─────────────────────────────────────────
+  useEffect(() => {
+    startPolling();
+    // Attempt push subscription (silent if unsupported)
+    subscribeToPush();
+    return () => stopPolling();
+  }, [startPolling, stopPolling, subscribeToPush]);
 
   const handleThemeToggle = () => {
     toggleTheme();
@@ -101,6 +120,28 @@ const DashboardLayout: React.FC = () => {
                   : <Sun  key="dark"  className="w-5 h-5 animate-fadeInFast" />}
               </button>
 
+              {/* Notification Bell */}
+              <div className="relative" ref={notificationRef}>
+                <button
+                  onClick={() => setShowNotifications((v) => !v)}
+                  className={`p-2 rounded-lg transition-all duration-200 cursor-pointer relative ${
+                    showNotifications ? 'bg-primary/10 text-primary' : 'text-muted hover:text-foreground hover:bg-surface'
+                  }`}
+                  aria-label="Notifications"
+                >
+                  <Bell className="w-5 h-5" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-error rounded-full ring-2 ring-background" />
+                  )}
+                </button>
+
+                {showNotifications && (
+                  <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 z-50">
+                    <NotificationPanel onClose={() => setShowNotifications(false)} />
+                  </div>
+                )}
+              </div>
+
               {/* Avatar Dropdown */}
               <div className="relative" ref={dropdownRef}>
                 <button
@@ -144,6 +185,18 @@ const DashboardLayout: React.FC = () => {
                       >
                         <Edit3 className="w-4 h-4 text-muted" />
                         Edit Profile
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setShowDropdown(false);
+                          navigate('/settings/privacy');
+                        }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2.5 text-sm text-foreground font-medium rounded-lg hover:bg-surface-hover transition-colors cursor-pointer"
+                        id="dropdown-privacy-settings"
+                      >
+                        <Shield className="w-4 h-4 text-muted" />
+                        Privacy Settings
                       </button>
 
                       {user?.username && (

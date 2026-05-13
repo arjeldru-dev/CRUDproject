@@ -26,8 +26,67 @@ model User {
   transactions  Transaction[]   @relation("TransactionCreator")
   ledgerEntries LedgerEntry[]
 
+  // Friend Request & Friendship relations
+  sentFriendRequests     FriendRequest[] @relation("SentFriendRequests")
+  receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequests")
+  friendshipsAsA         Friendship[]    @relation("FriendshipsAsA")
+  friendshipsAsB         Friendship[]    @relation("FriendshipsAsB")
+
+  // Feed relations
+  feedPosts    FeedPost[]
+  reactions    Reaction[]
+  comments     Comment[]
+
+  // Privacy & Blocking relations
+  privacySettings PrivacySettings?
+  blockedUsers    BlockedUser[] @relation("Blocker")
+  blockedBy       BlockedUser[] @relation("Blocked")
+
+  // Notifications relations
+  notificationsReceived Notification[]     @relation("NotificationRecipient")
+  notificationsActed    Notification[]     @relation("NotificationActor")
+  pushSubscriptions     PushSubscription[]
+
   @@index([username])
   @@map("users")
+}
+
+// ── Friend Request System ────────────────────────────────────────────
+
+enum FriendRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+}
+
+model FriendRequest {
+  id         String              @id @default(uuid()) @db.Uuid
+  senderId   String              @map("sender_id") @db.Uuid
+  receiverId String              @map("receiver_id") @db.Uuid
+  status     FriendRequestStatus @default(PENDING)
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  sender   User @relation("SentFriendRequests", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver User @relation("ReceivedFriendRequests", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@unique([senderId, receiverId])
+  @@index([receiverId])
+  @@map("friend_requests")
+}
+
+model Friendship {
+  id        String   @id @default(uuid()) @db.Uuid
+  userAId   String   @map("user_a_id") @db.Uuid
+  userBId   String   @map("user_b_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  userA User @relation("FriendshipsAsA", fields: [userAId], references: [id], onDelete: Cascade)
+  userB User @relation("FriendshipsAsB", fields: [userBId], references: [id], onDelete: Cascade)
+
+  @@unique([userAId, userBId])
+  @@index([userBId])
+  @@map("friendships")
 }
 
 model FriendProfile {
@@ -99,4 +158,143 @@ model LedgerEntry {
   friendProfile FriendProfile? @relation(fields: [friendProfileId], references: [id], onDelete: SetNull)
 
   @@map("ledger_entries")
+}
+
+// ── Feed System ──────────────────────────────────────────────────────
+
+enum FeedPostType {
+  EXPENSE_ADDED
+  SETTLEMENT_COMPLETED
+  GROUP_SPLIT_CREATED
+  BUDGET_MILESTONE
+}
+
+model FeedPost {
+  id        String       @id @default(uuid()) @db.Uuid
+  userId    String       @map("user_id") @db.Uuid
+  type      FeedPostType
+  content   String
+  isPublic  Boolean      @default(false) @map("is_public")
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions Reaction[]
+  comments  Comment[]
+
+  @@index([userId, createdAt])
+  @@map("feed_posts")
+}
+
+model Reaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  postId    String   @map("post_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  emoji     String   @db.VarChar(10)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post      FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId, emoji])
+  @@map("reactions")
+}
+
+model Comment {
+  id        String   @id @default(uuid()) @db.Uuid
+  postId    String   @map("post_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  text      String   @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post      FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+}
+
+// ── Privacy & Blocking System ──────────────────────────────────────────
+
+enum Visibility {
+  PUBLIC
+  FRIENDS_ONLY
+  PRIVATE
+}
+
+model PrivacySettings {
+  id                String     @id @default(uuid()) @db.Uuid
+  userId            String     @unique @map("user_id") @db.Uuid
+  profileVisibility Visibility @default(PUBLIC) @map("profile_visibility")
+  debtVisibility    Visibility @default(FRIENDS_ONLY) @map("debt_visibility")
+  budgetVisibility  Visibility @default(PRIVATE) @map("budget_visibility")
+
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("privacy_settings")
+}
+
+model BlockedUser {
+  id        String   @id @default(uuid()) @db.Uuid
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+  @@index([blockedId])
+  @@map("blocked_users")
+}
+
+// ── Notification System ───────────────────────────────────────────────
+
+enum NotificationType {
+  FRIEND_REQUEST_RECEIVED
+  FRIEND_REQUEST_ACCEPTED
+  ADDED_TO_SPLIT
+  BALANCE_CHANGED
+  FEED_REACTION
+  FEED_COMMENT
+  SETTLEMENT_REMINDER
+}
+
+model Notification {
+  id          String           @id @default(uuid()) @db.Uuid
+  recipientId String           @map("recipient_id") @db.Uuid
+  actorId     String?          @map("actor_id") @db.Uuid
+  type        NotificationType
+  data        String? // JSON metadata
+  read        Boolean          @default(false)
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  recipient User  @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  actor     User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([recipientId, read, createdAt])
+  @@map("notifications")
+}
+
+model PushSubscription {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  endpoint  String
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, endpoint])
+  @@map("push_subscriptions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  action    String
+  targetId  String?  @map("target_id") @db.Uuid
+  metadata  String?
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("audit_logs")
 }

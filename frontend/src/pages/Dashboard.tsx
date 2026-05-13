@@ -18,7 +18,8 @@ import {
 interface Balance {
   friendProfileId: string;
   friendName: string;
-  netBalance: number;
+  receivableBalance: number;
+  payableBalance: number;
 }
 
 /** Shape of a budget status entry from GET /api/transactions/budget */
@@ -94,12 +95,10 @@ const Dashboard: React.FC = () => {
   ];
 
   // ── Derived Data ──────────────────────────────────────────────────────
-  const positiveBalances = balances.filter((b) => b.netBalance > 0);
-  const negativeBalances = balances.filter((b) => b.netBalance < 0);
-  const totalOwed = positiveBalances.reduce((s, b) => s + b.netBalance, 0);
-  const totalOwe = Math.abs(
-    negativeBalances.reduce((s, b) => s + b.netBalance, 0),
-  );
+  const positiveBalances = balances.filter((b) => b.receivableBalance > 0);
+  const negativeBalances = balances.filter((b) => b.payableBalance > 0);
+  const totalOwed = positiveBalances.reduce((s, b) => s + b.receivableBalance, 0);
+  const totalOwe = negativeBalances.reduce((s, b) => s + b.payableBalance, 0);
 
   return (
     <div className="animate-fadeInFast">
@@ -272,46 +271,56 @@ const Dashboard: React.FC = () => {
         )}
 
         {/* ── Balances Section ──────────────────────────────────────────── */}
-        {balances.length > 0 && (
+        {(positiveBalances.length > 0 || negativeBalances.length > 0) && (
           <div>
             <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-5">
               Friend Balances
             </h2>
             <div className="flex flex-col gap-3">
-            {balances.map((b) => (
-              <div
-                key={b.friendProfileId}
-                className="container-card container-card-interactive p-4 flex items-center gap-4"
-              >
-                <div
-                  className={`w-10 h-10 flex items-center justify-center shrink-0 rounded-xl ${
-                    b.netBalance >= 0
-                      ? 'bg-success/10 text-success'
-                      : 'bg-error/10 text-error'
-                  }`}
-                >
-                  {b.netBalance >= 0 ? (
-                    <ArrowDownRight className="w-5 h-5" />
-                  ) : (
-                    <ArrowUpRight className="w-5 h-5" />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold text-foreground truncate">
-                    {b.friendName}
-                  </p>
-                  <p
-                    className={`text-xs font-medium mt-0.5 ${
-                      b.netBalance >= 0 ? 'text-success' : 'text-error'
-                    }`}
+            {balances.flatMap((b) => {
+              const items = [];
+              if (b.receivableBalance > 0) {
+                items.push(
+                  <div
+                    key={`${b.friendProfileId}-rec`}
+                    className="container-card container-card-interactive p-4 flex items-center gap-4"
                   >
-                    {b.netBalance >= 0
-                      ? `Owes you +${fmt(b.netBalance)}`
-                      : `You owe -${fmt(Math.abs(b.netBalance))}`}
-                  </p>
-                </div>
-              </div>
-            ))}
+                    <div className="w-10 h-10 flex items-center justify-center shrink-0 rounded-xl bg-success/10 text-success">
+                      <ArrowDownRight className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {b.friendName}
+                      </p>
+                      <p className="text-xs font-medium mt-0.5 text-success">
+                        Owes you +{fmt(b.receivableBalance)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+              if (b.payableBalance > 0) {
+                items.push(
+                  <div
+                    key={`${b.friendProfileId}-pay`}
+                    className="container-card container-card-interactive p-4 flex items-center gap-4"
+                  >
+                    <div className="w-10 h-10 flex items-center justify-center shrink-0 rounded-xl bg-error/10 text-error">
+                      <ArrowUpRight className="w-5 h-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground truncate">
+                        {b.friendName}
+                      </p>
+                      <p className="text-xs font-medium mt-0.5 text-error">
+                        You owe -{fmt(b.payableBalance)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+              return items;
+            })}
           </div>
         </div>
       )}
