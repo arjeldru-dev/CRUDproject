@@ -12,6 +12,8 @@ import {
   ArrowDownRight,
   Receipt,
   Handshake,
+  Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 
 /** Shape of a balance entry from GET /api/transactions/balances */
@@ -29,6 +31,10 @@ interface BudgetStatus {
   monthlyLimit: number;
   spent: number;
   remaining: number;
+  projectedSpend?: number;
+  status?: string;
+  insightText?: string;
+  alertText?: string;
 }
 
 /**
@@ -49,9 +55,15 @@ const Dashboard: React.FC = () => {
   const fetchDashboardData = useCallback(async () => {
     setDataLoading(true);
     try {
+      const now = new Date();
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
+      const clientNow = now.toISOString();
+      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+
       const [balancesRes, budgetRes] = await Promise.all([
         api.get('/transactions/balances'),
-        api.get('/transactions/budget'),
+        api.get(`/transactions/budget?monthStart=${monthStart}&monthEnd=${monthEnd}&now=${clientNow}&daysInMonth=${daysInMonth}`),
       ]);
       setBalances(balancesRes.data.balances || []);
       setBudgetStatuses(budgetRes.data.budgetStatuses || []);
@@ -206,6 +218,80 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* ── AI Spending Forecasting ──────────────────────────────────── */}
+      {budgetStatuses.length > 0 && budgetStatuses.some(bs => bs.insightText) && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-5">
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
+              Spending Forecast & Insights
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {budgetStatuses.map((bs) => {
+              if (!bs.insightText) return null;
+              
+              const isOverBudget = bs.status === 'OVER_BUDGET';
+              const isAtRisk = bs.status === 'AT_RISK';
+              const isNew = bs.status === 'NEW';
+              const isSurplus = bs.status === 'SURPLUS';
+              
+              let borderColor = 'border-border';
+              let iconColor = 'text-primary';
+              let bgIconColor = 'bg-primary/10';
+              
+              if (isOverBudget) {
+                borderColor = 'border-error/50';
+                iconColor = 'text-error';
+                bgIconColor = 'bg-error/10';
+              } else if (isAtRisk) {
+                borderColor = 'border-warning/50';
+                iconColor = 'text-warning';
+                bgIconColor = 'bg-warning/10';
+              } else if (isSurplus) {
+                borderColor = 'border-success/50';
+                iconColor = 'text-success';
+                bgIconColor = 'bg-success/10';
+              } else if (isNew) {
+                borderColor = 'border-border';
+                iconColor = 'text-muted';
+                bgIconColor = 'bg-surface-hover';
+              }
+
+              return (
+                <div key={`forecast-${bs.categoryId}`} className={`container-card p-5 border ${borderColor} transition-colors`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-10 h-10 rounded-xl ${bgIconColor} flex items-center justify-center shrink-0`}>
+                      {(isOverBudget || isAtRisk) ? (
+                        <AlertTriangle className={`w-5 h-5 ${iconColor}`} />
+                      ) : (
+                        <Sparkles className={`w-5 h-5 ${iconColor}`} />
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-semibold text-foreground">{bs.categoryName}</h3>
+                      {bs.alertText && (
+                        <p className={`text-xs font-medium mt-0.5 ${iconColor}`}>
+                          {bs.alertText}
+                        </p>
+                      )}
+                      <p className="text-sm text-muted mt-2 leading-relaxed">
+                        {bs.insightText}
+                      </p>
+                      {!isNew && (
+                        <p className="text-xs text-muted font-medium mt-3 pt-3 border-t border-border/50">
+                          Projected end of month: <span className="text-foreground">{fmt(bs.projectedSpend || 0)}</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Two-Column Layout for Desktop ────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">

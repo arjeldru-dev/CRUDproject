@@ -120,6 +120,7 @@ model Category {
 enum TransactionType {
   EXPENSE
   SETTLEMENT
+  TOP_UP
 }
 
 model Transaction {

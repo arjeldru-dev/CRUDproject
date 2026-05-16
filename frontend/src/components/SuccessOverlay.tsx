@@ -3,7 +3,7 @@ import { CheckCircle2 } from 'lucide-react';
 
 interface SuccessOverlayProps {
   amount: string;
-  mode: 'expense' | 'settlement';
+  mode: 'expense' | 'settlement' | 'topup';
 }
 
 interface Particle {
@@ -99,7 +99,7 @@ const SuccessOverlay: React.FC<SuccessOverlayProps> = ({ amount, mode }) => {
         className="text-2xl font-display font-semibold text-foreground mb-2 animate-fadeInUp"
         style={{ animationDelay: '0.1s' }}
       >
-        {mode === 'expense' ? '🎉 Expense Split!' : '🤝 Debt Settled!'}
+        {mode === 'expense' ? '🎉 Expense Split!' : mode === 'settlement' ? '🤝 Debt Settled!' : '💰 Budget Top-Up!'}
       </h3>
       <p
         className="text-base text-muted animate-fadeInUp"
@@ -108,7 +108,7 @@ const SuccessOverlay: React.FC<SuccessOverlayProps> = ({ amount, mode }) => {
         <span className="font-semibold text-success">
           {amount}
         </span>{' '}
-        {mode === 'expense' ? 'recorded & split' : 'settlement complete'}
+        {mode === 'expense' ? 'recorded & split' : mode === 'settlement' ? 'settlement complete' : 'added to budget'}
       </p>
 
       {/* Saving indicator */}

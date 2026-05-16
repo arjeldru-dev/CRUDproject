@@ -2,9 +2,9 @@ import { create } from 'zustand';
 
 interface UiState {
   isTransactionFormOpen: boolean;
-  transactionFormMode: 'expense' | 'settlement';
+  transactionFormMode: 'expense' | 'settlement' | 'topup';
   transactionTimestamp: number;
-  openTransactionForm: (mode?: 'expense' | 'settlement') => void;
+  openTransactionForm: (mode?: 'expense' | 'settlement' | 'topup') => void;
   closeTransactionForm: () => void;
   notifyTransactionComplete: () => void;
 }

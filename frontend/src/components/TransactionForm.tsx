@@ -14,6 +14,7 @@ import {
   Users,
   Tag,
   Handshake,
+  Wallet,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────
@@ -36,7 +37,7 @@ interface Balance {
   payableBalance: number;
 }
 
-type TransactionMode = 'expense' | 'settlement';
+type TransactionMode = 'expense' | 'settlement' | 'topup';
 
 interface TransactionFormProps {
   isOpen: boolean;
@@ -181,10 +182,12 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       return 'Please enter a valid positive amount.';
     }
 
-    if (mode === 'expense') {
+    if (mode === 'expense' || mode === 'topup') {
       if (!categoryId) {
         return 'Please select a budget category.';
       }
+    }
+    if (mode === 'expense') {
       if (!isSolo && selectedFriendIds.length === 0) {
         return 'Please add at least one friend or toggle solo expense.';
       }
@@ -242,6 +245,15 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     });
   };
 
+  // ── Submit Topup ──────────────────────────────────────────────────────
+  const handleTopupSubmit = async () => {
+    await api.post('/transactions/topup', {
+      amount: parsedAmount,
+      categoryId,
+      message: message.trim() || undefined,
+    });
+  };
+
   // ── Main Submit Handler ───────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -257,8 +269,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     try {
       if (mode === 'expense') {
         await handleExpenseSubmit();
-      } else {
+      } else if (mode === 'settlement') {
         await handleSettlementSubmit();
+      } else {
+        await handleTopupSubmit();
       }
 
       setShowSuccess(true);
@@ -293,17 +307,19 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
         {/* ── Header ──────────────────────────────────────────────────── */}
         <div className="sticky top-0 bg-surface/95 backdrop-blur-sm border-b border-border px-8 py-5 flex items-center justify-between z-10">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center">
-              <Receipt className="w-6 h-6 text-primary" />
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${mode === 'topup' ? 'bg-warning/10' : 'bg-primary/10'}`}>
+              {mode === 'topup' ? <Wallet className="w-6 h-6 text-warning" /> : <Receipt className="w-6 h-6 text-primary" />}
             </div>
             <div>
               <h2 className="text-xl font-display font-semibold text-foreground">
-                {mode === 'expense' ? 'New Expense' : 'Settle Debt'}
+                {mode === 'expense' ? 'New Expense' : mode === 'settlement' ? 'Settle Debt' : 'Top-Up Budget'}
               </h2>
               <p className="text-sm text-muted mt-0.5">
                 {mode === 'expense'
                   ? 'Record an expense and split it'
-                  : 'Settle an outstanding balance'}
+                  : mode === 'settlement'
+                  ? 'Settle an outstanding balance'
+                  : 'Add funds to replenish a category'}
               </p>
             </div>
           </div>
@@ -384,21 +400,22 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               })()}
 
               {/* ── Category Select ────────────────────────────────────── */}
-              {(mode === 'expense' || mode === 'settlement') && (
-                <div className="flex flex-col gap-1.5">
-                  <label
-                    htmlFor="transaction-category"
-                    className="text-sm font-medium text-muted flex items-center gap-2"
-                  >
-                    <Tag className="w-3.5 h-3.5 text-primary" />
-                    {mode === 'expense'
-                      ? 'Budget Category'
-                      : payerId === 'self'
-                        ? 'Take from Budget'
-                        : 'Refund to Budget (Optional)'}
-                  </label>
-                  {categories.length === 0 ? (
-                    <p className="text-xs text-muted italic py-2">
+              <div className="flex flex-col gap-1.5">
+                <label
+                  htmlFor="transaction-category"
+                  className="text-sm font-medium text-muted flex items-center gap-2"
+                >
+                  <Tag className="w-3.5 h-3.5 text-primary" />
+                  {mode === 'expense'
+                    ? 'Budget Category'
+                    : mode === 'topup'
+                    ? 'Budget Category to Top-Up'
+                    : payerId === 'self'
+                      ? 'Take from Budget'
+                      : 'Refund to Budget (Optional)'}
+                </label>
+                {categories.length === 0 ? (
+                  <p className="text-xs text-muted italic py-2">
                       No categories found. Create one in the Budget page first.
                     </p>
                   ) : (
@@ -425,10 +442,10 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                     </select>
                   )}
                 </div>
-              )}
 
               {/* ── Friend Select ──────────────────────────────────────── */}
-              <div className="flex flex-col gap-1.5">
+              {mode !== 'topup' && (
+                <div className="flex flex-col gap-1.5">
                   <label
                     htmlFor="transaction-friend"
                     className="text-sm font-medium text-muted flex items-center gap-2"
@@ -529,7 +546,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                     )}
                   </>
                 )}
-              </div>
+                </div>
+              )}
 
               {/* ── Payer Toggle ────────────────────────────────────────── */}
               {((mode === 'expense' && !isSolo && selectedFriendIds.length > 0) || 
@@ -623,7 +641,11 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted mb-1">
                     Ledger Impact
                   </p>
-                  {mode === 'settlement' ? (
+                  {mode === 'topup' ? (
+                    <p className="text-sm font-medium text-success">
+                      ↑ Added {fmt(parsedAmount)} to {categories.find(c => c.id === categoryId)?.name || 'budget'}
+                    </p>
+                  ) : mode === 'settlement' ? (
                     <>
                       <p className={`text-sm font-medium ${payerId === 'self' ? 'text-primary' : 'text-success'}`}>
                         {payerId === 'self'
@@ -672,26 +694,29 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               )}
 
               {/* ── Optional Message ───────────────────────────────────── */}
-              <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="transaction-message"
-                  className="text-sm font-medium text-muted flex items-center gap-2"
-                >
-                  <Receipt className="w-3.5 h-3.5 text-secondary" />
-                  What is this for? (Optional)
-                </label>
-                <textarea
-                  id="transaction-message"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="e.g. Dinner at Mendokoro"
-                  rows={2}
-                  className="w-full px-4 py-3 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border resize-none"
-                />
-              </div>
+              {mode !== 'topup' && (
+                <div className="flex flex-col gap-1.5">
+                  <label
+                    htmlFor="transaction-message"
+                    className="text-sm font-medium text-muted flex items-center gap-2"
+                  >
+                    <Receipt className="w-3.5 h-3.5 text-secondary" />
+                    What is this for? (Optional)
+                  </label>
+                  <textarea
+                    id="transaction-message"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="e.g. Dinner at Mendokoro"
+                    rows={2}
+                    className="w-full px-4 py-3 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border resize-none"
+                  />
+                </div>
+              )}
 
               {/* ── Privacy Toggle ─────────────────────────────────────── */}
-              <div className="flex flex-col gap-2">
+              {mode !== 'topup' && (
+                <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between p-4 bg-surface border border-border-subtle rounded-xl">
                   <div>
                     <p className="text-sm font-medium text-foreground">Make Private</p>
@@ -733,7 +758,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                     </button>
                   </div>
                 )}
-              </div>
+                </div>
+              )}
 
               {/* ── Error ──────────────────────────────────────────────── */}
               {formError && (
@@ -760,10 +786,15 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                     <Receipt className="w-4 h-4" />
                     Record Expense
                   </>
-                ) : (
+                ) : mode === 'settlement' ? (
                   <>
                     <Handshake className="w-4 h-4" />
                     Record Settlement
+                  </>
+                ) : (
+                  <>
+                    <Wallet className="w-4 h-4" />
+                    Add Funds
                   </>
                 )}
               </Button>

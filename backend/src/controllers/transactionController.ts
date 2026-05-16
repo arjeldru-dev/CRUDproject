@@ -3,6 +3,7 @@ import { prisma } from '../config/db';
 import { Prisma } from '@prisma/client';
 import { feedService } from '../services/feedService';
 import { createNotification } from '../services/notificationService';
+import { generateSpendingForecast } from '../services/forecastingService';
 
 /**
  * POST /api/transactions
@@ -652,34 +653,78 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
       select: { id: true, name: true, monthlyLimit: true },
     });
 
-    // Calculate the current month boundaries
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    // Get client timezone parameters if provided, fallback to server time
+    const reqMonthStart = req.query.monthStart as string;
+    const reqMonthEnd = req.query.monthEnd as string;
+    const reqNow = req.query.now as string;
+    const reqDaysInMonth = req.query.daysInMonth as string;
 
-    // For each category, sum BUDGET_DEDUCTION entries in the current month
-    const budgetStatuses = await Promise.all(
-      categories.map(async (category) => {
-        const deductions = await prisma.ledgerEntry.aggregate({
-          where: {
-            userId,
-            type: 'BUDGET_DEDUCTION',
-            transaction: {
-              categoryId: category.id,
-              createdAt: {
-                gte: monthStart,
-                lt: monthEnd,
-              },
-            },
+    const parseDateSafe = (dateStr: string | undefined, fallback: Date) => {
+      if (!dateStr) return fallback;
+      const parsed = new Date(dateStr);
+      return isNaN(parsed.getTime()) ? fallback : parsed;
+    };
+
+    const now = parseDateSafe(reqNow, new Date());
+    const monthStart = parseDateSafe(reqMonthStart, new Date(now.getFullYear(), now.getMonth(), 1));
+    const monthEnd = parseDateSafe(reqMonthEnd, new Date(now.getFullYear(), now.getMonth() + 1, 1));
+
+    // Forecasting metrics: Calculate whole days elapsed to prevent the projection from changing every minute
+    const timeElapsedMs = now.getTime() - monthStart.getTime();
+    
+    // Floor to get completed 24-hour periods, add 1 to represent the current day
+    const currentDay = Math.floor(timeElapsedMs / (1000 * 60 * 60 * 24)) + 1;
+    
+    const daysInMonthSafe = reqDaysInMonth && !isNaN(parseInt(reqDaysInMonth, 10)) 
+      ? parseInt(reqDaysInMonth, 10) 
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    
+    // Clamp to at least 1 to prevent division by zero or infinite spikes on day 1
+    const daysElapsed = Math.max(1, currentDay); 
+    const daysRemaining = Math.max(0, daysInMonthSafe - currentDay);
+
+    // Fetch all deductions for the month in one query to avoid N+1 queries
+    const allDeductions = await prisma.ledgerEntry.findMany({
+      where: {
+        userId,
+        type: 'BUDGET_DEDUCTION',
+        transaction: {
+          createdAt: {
+            gte: monthStart,
+            lt: monthEnd,
           },
-          _sum: { amountChange: true },
-        });
+        },
+      },
+      include: {
+        transaction: {
+          select: { categoryId: true },
+        },
+      },
+    });
 
-        const spent = deductions._sum.amountChange
-          ? new Prisma.Decimal(deductions._sum.amountChange.toString()).toNumber()
-          : 0;
+    // Group spent amounts by categoryId in memory
+    const spentByCategory = allDeductions.reduce((acc, entry) => {
+      const catId = entry.transaction?.categoryId;
+      if (catId) {
+        acc[catId] = (acc[catId] || 0) + new Prisma.Decimal(entry.amountChange.toString()).toNumber();
+      }
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Map categories synchronously
+    const budgetStatuses = categories.map((category) => {
+        const spent = spentByCategory[category.id] || 0;
         const monthlyLimit = new Prisma.Decimal(category.monthlyLimit.toString()).toNumber();
         const remaining = monthlyLimit - spent;
+
+        // --- Heuristic Spending Forecasting Engine ---
+        const forecast = generateSpendingForecast({
+          spent,
+          monthlyLimit,
+          daysElapsed,
+          daysRemaining,
+          categoryName: category.name,
+        });
 
         return {
           categoryId: category.id,
@@ -687,13 +732,90 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
           monthlyLimit,
           spent,
           remaining,
+          ...forecast,
         };
-      })
-    );
+    });
 
     return res.status(200).json({ budgetStatuses });
   } catch (error) {
     console.error('Get budget status error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * POST /api/transactions/topup
+ * Manually replenishes a budget category by adding funds.
+ *
+ * Body: { amount, categoryId, message? }
+ *   - amount: the top-up amount (positive number)
+ *   - categoryId: budget category UUID (must belong to req.user)
+ *   - message: optional note for the top-up
+ */
+export const createTopUp = async (req: Request, res: Response) => {
+  try {
+    const { amount, categoryId, message } = req.body;
+    const userId: string = req.user.id;
+
+    // ── Input Validation ──────────────────────────────────────────────
+    if (amount === undefined || !categoryId) {
+      return res.status(400).json({
+        error: 'All fields are required: amount, categoryId',
+      });
+    }
+
+    if (typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ error: 'Amount must be a positive number' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      // Validate category ownership
+      const category = await tx.category.findUnique({ where: { id: categoryId } });
+
+      if (!category) {
+        throw { statusCode: 404, message: 'Category not found' };
+      }
+      if (category.userId !== userId) {
+        throw { statusCode: 403, message: 'Forbidden: You do not own this category' };
+      }
+
+      // Create the top-up transaction
+      const transaction = await tx.transaction.create({
+        data: {
+          creatorId: userId,
+          categoryId,
+          totalAmount: amount,
+          type: 'TOP_UP',
+        },
+      });
+
+      // Create a negative BUDGET_DEDUCTION to restore budget
+      // (getBudgetStatus sums BUDGET_DEDUCTION entries; a negative value reduces "spent")
+      const topUpAmount = new Prisma.Decimal(amount);
+
+      await tx.ledgerEntry.create({
+        data: {
+          transactionId: transaction.id,
+          userId,
+          friendProfileId: null,
+          amountChange: topUpAmount.neg(),
+          type: 'BUDGET_DEDUCTION',
+        },
+      });
+
+      const createdEntries = await tx.ledgerEntry.findMany({
+        where: { transactionId: transaction.id },
+      });
+
+      return { transaction, ledgerEntries: createdEntries };
+    });
+
+    return res.status(201).json(result);
+  } catch (error: any) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    console.error('Create top-up error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
