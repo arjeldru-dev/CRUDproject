@@ -15,6 +15,9 @@ import {
   Sparkles,
   AlertTriangle,
 } from 'lucide-react';
+import { useGamificationStore } from '../store/gamificationStore';
+import { StreakWidget } from '../components/gamification/StreakWidget';
+import { ActiveChallengeCard } from '../components/gamification/ActiveChallengeCard';
 
 /** Shape of a balance entry from GET /api/transactions/balances */
 interface Balance {
@@ -42,13 +45,31 @@ interface BudgetStatus {
  * Integrates the TransactionForm modal and shows live balance
  * / budget data from the backend.
  */
+interface PendingTransaction {
+  id: string;
+  creatorId: string;
+  creator: {
+    id: string;
+    username: string;
+    displayName: string | null;
+    avatarUrl: string | null;
+  };
+  amount: number;
+  message: string | null;
+  createdAt: string;
+}
+
 const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
   const { openTransactionForm, transactionTimestamp } = useUiStore();
+  const { challenges } = useGamificationStore();
 
   // ── Data State ────────────────────────────────────────────────────────
   const [balances, setBalances] = useState<Balance[]>([]);
   const [budgetStatuses, setBudgetStatuses] = useState<BudgetStatus[]>([]);
+  const [pendingTransactions, setPendingTransactions] = useState<PendingTransaction[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>({});
+  const [resolvingIds, setResolvingIds] = useState<Record<string, boolean>>({});
   const [dataLoading, setDataLoading] = useState(true);
 
   // ── Fetch Dashboard Data ──────────────────────────────────────────────
@@ -61,18 +82,42 @@ const Dashboard: React.FC = () => {
       const clientNow = now.toISOString();
       const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 
-      const [balancesRes, budgetRes] = await Promise.all([
+      const [balancesRes, budgetRes, pendingRes] = await Promise.all([
         api.get('/transactions/balances'),
         api.get(`/transactions/budget?monthStart=${monthStart}&monthEnd=${monthEnd}&now=${clientNow}&daysInMonth=${daysInMonth}`),
+        api.get('/transactions/pending'),
+        useGamificationStore.getState().fetchProfile(),
+        useGamificationStore.getState().fetchChallenges('ACTIVE'),
       ]);
       setBalances(balancesRes.data.balances || []);
       setBudgetStatuses(budgetRes.data.budgetStatuses || []);
+      setPendingTransactions(pendingRes.data.pendingTransactions || []);
     } catch {
       // Silently fail — pages will show empty states
     } finally {
       setDataLoading(false);
     }
   }, []);
+
+  // ── Handle Pending Response ───────────────────────────────────────────
+  const handleRespondPending = async (id: string, action: 'APPROVE' | 'REJECT') => {
+    const categoryId = selectedCategories[id];
+    if (action === 'APPROVE' && !categoryId) return;
+
+    setResolvingIds(prev => ({ ...prev, [id]: true }));
+    try {
+      await api.post(`/transactions/pending/${id}/respond`, {
+        action,
+        categoryId: action === 'APPROVE' ? categoryId : undefined,
+      });
+      // Success! Refresh dashboard data
+      fetchDashboardData();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Failed to respond to transaction request');
+    } finally {
+      setResolvingIds(prev => ({ ...prev, [id]: false }));
+    }
+  };
 
   // ── Auto-Refresh on Global Transaction Complete ───────────────────────
   useEffect(() => {
@@ -148,6 +193,96 @@ const Dashboard: React.FC = () => {
       </div>
 
       <div className="divider mb-8" />
+
+      {/* ── Pending Approvals ─────────────────────────────────────────── */}
+      {pendingTransactions.length > 0 && (
+        <div className="mb-8 animate-fadeInFast">
+          <div className="flex items-center gap-2 mb-4">
+            <Sparkles className="w-5 h-5 text-warning" />
+            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
+              Pending Approvals
+            </h2>
+          </div>
+          <div className="flex flex-col gap-4">
+            {pendingTransactions.map((tx) => {
+              const creatorName = tx.creator?.displayName || tx.creator?.username || 'Friend';
+              const selectedCat = selectedCategories[tx.id] || '';
+              const isResolving = resolvingIds[tx.id] || false;
+
+              return (
+                <div
+                  key={tx.id}
+                  className="container-card border-warning/30 bg-warning/5 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-warning/50 transition-colors duration-300"
+                >
+                  <div className="flex-1">
+                    <p className="text-[0.95rem] text-foreground font-medium">
+                      <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense where you paid.
+                    </p>
+                    {tx.message && (
+                      <p className="text-sm text-muted mt-1 italic">
+                        &ldquo;{tx.message}&rdquo;
+                      </p>
+                    )}
+                    <div className="flex items-baseline gap-2 mt-3">
+                      <span className="text-3xl font-display font-bold text-foreground">
+                        {fmt(Number(tx.amount))}
+                      </span>
+                      <span className="text-xs text-muted">
+                        on {new Date(tx.createdAt).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-end gap-3 shrink-0">
+                    <div className="flex flex-col gap-1.5 min-w-[220px]">
+                      <label htmlFor={`category-select-${tx.id}`} className="text-xs text-muted font-semibold tracking-wider uppercase">
+                        Select Budget Category
+                      </label>
+                      <select
+                        id={`category-select-${tx.id}`}
+                        value={selectedCat}
+                        onChange={(e) =>
+                          setSelectedCategories((prev) => ({ ...prev, [tx.id]: e.target.value }))
+                        }
+                        className="w-full bg-surface border border-border-subtle text-foreground rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:bg-surface-hover transition-colors"
+                      >
+                        <option value="">-- Choose Category --</option>
+                        {budgetStatuses.map((cat) => (
+                          <option key={cat.categoryId} value={cat.categoryId}>
+                            {cat.categoryName} ({fmt(cat.remaining)} left)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        onClick={() => handleRespondPending(tx.id, 'REJECT')}
+                        isLoading={isResolving}
+                        variant="outline"
+                        size="md"
+                        className="py-2.5 hover:bg-error/10 hover:text-error hover:border-error/30"
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        onClick={() => handleRespondPending(tx.id, 'APPROVE')}
+                        disabled={!selectedCat}
+                        isLoading={isResolving}
+                        size="md"
+                        variant="primary"
+                        className="py-2.5"
+                      >
+                        Approve
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Summary Grid ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
@@ -292,6 +427,19 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Gamification Streak & Challenge Widgets ───────────────────── */}
+      {(() => {
+        const hasActiveChallenge = challenges.some(
+          (c) => c.status === 'ACTIVE' && c.myStatus !== 'pending'
+        );
+        return (
+          <div className={`grid grid-cols-1 ${hasActiveChallenge ? 'md:grid-cols-2' : ''} gap-4 mb-8`}>
+            <StreakWidget />
+            <ActiveChallengeCard />
+          </div>
+        );
+      })()}
 
       {/* ── Two-Column Layout for Desktop ────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">

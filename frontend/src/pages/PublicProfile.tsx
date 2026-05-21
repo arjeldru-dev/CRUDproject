@@ -4,7 +4,7 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import Avatar from '../components/ui/Avatar';
 import Button from '../components/ui/Button';
-import { AlertCircle, MapPin, Calendar, Edit3, UserPlus, Clock, UserCheck, ArrowLeft, Users, ShieldAlert, Ban } from 'lucide-react';
+import { AlertCircle, MapPin, Calendar, Edit3, UserPlus, Clock, UserCheck, ArrowLeft, Users, ShieldAlert, Ban, Trophy, Award, Flame, Star } from 'lucide-react';
 
 interface PublicProfileData {
   id: string;
@@ -18,6 +18,20 @@ interface PublicProfileData {
   friendshipStatus: 'none' | 'pending_sent' | 'pending_received' | 'friends' | 'self';
   sharedSplitCount?: number;
   mutualFriendCount?: number;
+  gamification?: {
+    currentStreak: number;
+    totalPoints: number;
+    badgeCount: number;
+    recentBadges: Array<{
+      id: string;
+      slug: string;
+      name: string;
+      iconUrl: string;
+    }>;
+    activeFrame: {
+      cssClass: string;
+    } | null;
+  } | null;
 }
 
 /**
@@ -253,6 +267,7 @@ const PublicProfile: React.FC = () => {
             src={profile.avatarUrl}
             name={profile.displayName || profile.email}
             size="xl"
+            frameClass={profile.gamification?.activeFrame?.cssClass || undefined}
           />
 
           <div className="flex-1 text-center sm:text-left">
@@ -299,6 +314,55 @@ const PublicProfile: React.FC = () => {
             </span>
           )}
         </div>
+
+        {/* ── Gamification Stats ── */}
+        {profile.gamification && (
+          <div className="mb-6 p-5 bg-surface-hover/40 border border-border-subtle rounded-2xl animate-slideDownIn">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted mb-4 flex items-center gap-2">
+              <Trophy className="w-4 h-4 text-primary" /> Gamification Stats
+            </h3>
+            <div className="grid grid-cols-3 gap-3 md:gap-4">
+              <div className="flex flex-col items-center justify-center p-3 bg-surface border border-border-subtle rounded-xl text-center">
+                <Star className="w-5 h-5 text-yellow-500 fill-yellow-500 mb-1" />
+                <span className="font-display font-bold text-base md:text-lg text-foreground">
+                  {profile.gamification.totalPoints.toLocaleString()}
+                </span>
+                <span className="text-[10px] text-muted font-medium">Points</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-3 bg-surface border border-border-subtle rounded-xl text-center">
+                <Flame className="w-5 h-5 text-orange-500 fill-orange-500/10 mb-1" />
+                <span className="font-display font-bold text-base md:text-lg text-foreground">
+                  {profile.gamification.currentStreak}d
+                </span>
+                <span className="text-[10px] text-muted font-medium">Streak</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-3 bg-surface border border-border-subtle rounded-xl text-center">
+                <Award className="w-5 h-5 text-purple-500 mb-1" />
+                <span className="font-display font-bold text-base md:text-lg text-foreground">
+                  {profile.gamification.badgeCount}
+                </span>
+                <span className="text-[10px] text-muted font-medium">Badges</span>
+              </div>
+            </div>
+
+            {profile.gamification.recentBadges.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-border-subtle">
+                <h4 className="text-[11px] font-semibold text-muted mb-2 uppercase tracking-wide">Recent Badges</h4>
+                <div className="flex flex-wrap gap-2">
+                  {profile.gamification.recentBadges.map((badge) => (
+                    <span 
+                      key={badge.id}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface border border-border-subtle rounded-full text-xs font-semibold text-foreground shadow-sm hover:scale-[1.02] transition-transform"
+                    >
+                      <span className="text-sm">🏅</span>
+                      {badge.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="divider mb-6" />
 

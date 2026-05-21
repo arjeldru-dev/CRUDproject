@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { feedService } from '../services/feedService';
 import { createNotification } from '../services/notificationService';
 import { generateSpendingForecast } from '../services/forecastingService';
+import { gamificationService, getLocalDateParts, getUtcDateOfLocalTime } from '../services/gamificationService';
 
 /**
  * POST /api/transactions
@@ -38,6 +39,53 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Sum of splits must equal total amount' });
     }
 
+    // Determine payer
+    const userIsPayer = payerId === userId || payerId === 'self';
+    let payerUserId: string | null = null;
+    let payerProfile: any = null;
+
+    if (!userIsPayer) {
+      payerProfile = await prisma.friendProfile.findUnique({
+        where: { id: payerId },
+      });
+      if (!payerProfile || payerProfile.mainUserId !== userId) {
+        return res.status(404).json({ error: 'Payer profile not found or forbidden' });
+      }
+      payerUserId = payerProfile.friendUserId;
+    }
+
+    if (payerUserId && payerUserId !== userId) {
+      const pendingTx = await prisma.pendingTransaction.create({
+        data: {
+          creatorId: userId,
+          payerId,
+          payerUserId,
+          categoryId,
+          amount: new Prisma.Decimal(amount),
+          splits: splits as any,
+          message: message || null,
+          isPrivate: isPrivate || false,
+          allowFriendToPrivate: allowFriendToPrivate || true,
+        },
+      });
+
+      await createNotification({
+        recipientId: payerUserId,
+        actorId: userId,
+        type: 'TRANSACTION_APPROVAL_REQUEST',
+        data: {
+          pendingTransactionId: pendingTx.id,
+          amount,
+        },
+      });
+
+      return res.status(202).json({
+        status: 'PENDING_APPROVAL',
+        message: 'Transaction sent to the payer for approval.',
+        pendingTransaction: pendingTx,
+      });
+    }
+
     // ── Atomic Transaction ────────────────────────────────────────────
     const result = await prisma.$transaction(async (tx) => {
       // 1. Validate category ownership
@@ -49,9 +97,6 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       if (category.userId !== userId) {
         throw { statusCode: 403, message: 'Forbidden: You do not own this category' };
       }
-
-      // 2. Determine payer
-      const userIsPayer = payerId === userId || payerId === 'self';
 
       // 3. Create the Transaction record
       const transaction = await tx.transaction.create({
@@ -67,6 +112,9 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       const ledgerEntries: Prisma.LedgerEntryCreateManyInput[] = [];
       const totalDecimal = new Prisma.Decimal(amount);
       const notifiedFriends: string[] = [];
+      let friendBudgetEntry: any = null;
+      let friendCategory: any = null;
+      let payerUserId: string | null = null;
 
       if (userIsPayer) {
         // User paid the full amount: Budget deduction for the FULL amount
@@ -146,7 +194,51 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
         if (!payerProfile || payerProfile.mainUserId !== userId) {
            throw { statusCode: 404, message: 'Payer profile not found or forbidden' };
         }
-        const payerUserId = payerProfile.friendUserId;
+        payerUserId = payerProfile.friendUserId;
+
+        if (payerUserId) {
+          const targetCategory = await tx.category.findUnique({ where: { id: categoryId } });
+          if (targetCategory) {
+            friendCategory = await tx.category.findFirst({
+              where: {
+                userId: payerUserId,
+                name: {
+                  equals: targetCategory.name,
+                  mode: 'insensitive',
+                },
+              },
+            });
+
+            if (!friendCategory) {
+              friendCategory = await tx.category.create({
+                data: {
+                  userId: payerUserId,
+                  name: targetCategory.name,
+                  monthlyLimit: targetCategory.monthlyLimit,
+                },
+              });
+            }
+
+            const friendTransaction = await tx.transaction.create({
+              data: {
+                creatorId: payerUserId,
+                categoryId: friendCategory.id,
+                totalAmount: amount,
+                type: 'EXPENSE',
+              },
+            });
+
+            friendBudgetEntry = await tx.ledgerEntry.create({
+              data: {
+                transactionId: friendTransaction.id,
+                userId: payerUserId,
+                friendProfileId: null,
+                amountChange: totalDecimal,
+                type: 'BUDGET_DEDUCTION',
+              },
+            });
+          }
+        }
 
         for (const split of splits) {
           if (split.amount <= 0) continue;
@@ -291,7 +383,14 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
         where: { transactionId: transaction.id },
       });
 
-      return { transaction, ledgerEntries: createdEntries, notifiedFriends };
+      return {
+        transaction,
+        ledgerEntries: createdEntries,
+        notifiedFriends,
+        payerUserId,
+        friendBudgetEntry,
+        friendCategory
+      };
     });
 
     // ── Notifications ─────────────────────────────────────────────────
@@ -323,6 +422,24 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
     const budgetDeductionAmount = budgetEntry ? Number(budgetEntry.amountChange) : 0;
     if (budgetDeductionAmount > 0) {
       checkBudgetMilestones(userId, categoryId, budgetDeductionAmount);
+    }
+
+    if (result.friendBudgetEntry && result.friendCategory) {
+      const friendDeductionAmount = Number(result.friendBudgetEntry.amountChange);
+      if (friendDeductionAmount > 0) {
+        checkBudgetMilestones(result.payerUserId!, result.friendCategory.id, friendDeductionAmount);
+      }
+    }
+
+    // Fire-and-forget gamification evaluation
+    gamificationService.updateStreak(userId).catch(console.error);
+    gamificationService.evaluateAndAwardBadges(userId).catch(console.error);
+    gamificationService.evaluateChallenges(userId).catch(console.error);
+
+    if (result.payerUserId) {
+      gamificationService.updateStreak(result.payerUserId).catch(console.error);
+      gamificationService.evaluateAndAwardBadges(result.payerUserId).catch(console.error);
+      gamificationService.evaluateChallenges(result.payerUserId).catch(console.error);
     }
 
     return res.status(201).json(result);
@@ -555,6 +672,11 @@ export const createSettlement = async (req: Request, res: Response) => {
 
     // ── Feed Post Generation ──────────────────────────────────────────
     feedService.generateSettlementPost(result.transaction.id, message, isPrivate, allowFriendToPrivate);
+
+    // Fire-and-forget gamification evaluation
+    gamificationService.updateStreak(userId).catch(console.error);
+    gamificationService.evaluateAndAwardBadges(userId).catch(console.error);
+    gamificationService.evaluateChallenges(userId).catch(console.error);
 
     return res.status(201).json(result);
   } catch (error: any) {
@@ -810,6 +932,11 @@ export const createTopUp = async (req: Request, res: Response) => {
       return { transaction, ledgerEntries: createdEntries };
     });
 
+    // Fire-and-forget gamification evaluation
+    gamificationService.updateStreak(userId).catch(console.error);
+    gamificationService.evaluateAndAwardBadges(userId).catch(console.error);
+    gamificationService.evaluateChallenges(userId).catch(console.error);
+
     return res.status(201).json(result);
   } catch (error: any) {
     if (error.statusCode) {
@@ -832,9 +959,18 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
 
     if (!category) return;
 
+    const gamification = await prisma.userGamification.findUnique({
+      where: { userId },
+      select: { timezone: true },
+    });
+    const timezone = gamification?.timezone || 'UTC';
+
     const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const parts = getLocalDateParts(now, timezone);
+    const monthStart = getUtcDateOfLocalTime(parts.year, parts.month, 1, 0, 0, 0, timezone);
+    const nextMonthYear = parts.month === 12 ? parts.year + 1 : parts.year;
+    const nextMonth = parts.month === 12 ? 1 : parts.month + 1;
+    const monthEnd = getUtcDateOfLocalTime(nextMonthYear, nextMonth, 1, 0, 0, 0, timezone);
 
     const deductions = await prisma.ledgerEntry.aggregate({
       where: {
@@ -871,3 +1007,382 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
     console.error('Check budget milestones error:', error);
   }
 }
+
+export const getPendingTransactions = async (req: Request, res: Response) => {
+  try {
+    const userId: string = req.user.id;
+    const pendingTransactions = await prisma.pendingTransaction.findMany({
+      where: {
+        payerUserId: userId,
+        status: 'PENDING',
+      },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    return res.status(200).json({ pendingTransactions });
+  } catch (error) {
+    console.error('Get pending transactions error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const respondToPendingTransaction = async (req: Request, res: Response) => {
+  try {
+    const userId: string = req.user.id;
+    const { id } = req.params;
+    const { action, categoryId } = req.body;
+
+    if (!action || !['APPROVE', 'REJECT'].includes(action)) {
+      return res.status(400).json({ error: 'Action must be APPROVE or REJECT' });
+    }
+
+    const pendingTx = await prisma.pendingTransaction.findUnique({
+      where: { id },
+      include: {
+        creator: {
+          select: {
+            username: true,
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    if (!pendingTx) {
+      return res.status(404).json({ error: 'Pending transaction not found' });
+    }
+
+    if (pendingTx.payerUserId !== userId) {
+      return res.status(403).json({ error: 'Forbidden: You are not the payer of this transaction' });
+    }
+
+    if (pendingTx.status !== 'PENDING') {
+      return res.status(400).json({ error: 'Pending transaction has already been resolved' });
+    }
+
+    if (action === 'REJECT') {
+      await prisma.pendingTransaction.update({
+        where: { id },
+        data: { status: 'REJECTED' },
+      });
+
+      await createNotification({
+        recipientId: pendingTx.creatorId,
+        actorId: userId,
+        type: 'BALANCE_CHANGED',
+        data: {
+          message: 'rejected your transaction request',
+        },
+      });
+
+      return res.status(200).json({ message: 'Transaction request rejected successfully.' });
+    }
+
+    if (!categoryId) {
+      return res.status(400).json({ error: 'Category ID is required for approval' });
+    }
+
+    const friendCategory = await prisma.category.findUnique({
+      where: { id: categoryId },
+    });
+
+    if (!friendCategory || friendCategory.userId !== userId) {
+      return res.status(400).json({ error: 'Invalid category selection' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.create({
+        data: {
+          creatorId: pendingTx.creatorId,
+          categoryId: pendingTx.categoryId,
+          totalAmount: pendingTx.amount,
+          type: 'EXPENSE',
+        },
+      });
+
+      const friendTransaction = await tx.transaction.create({
+        data: {
+          creatorId: pendingTx.payerUserId,
+          categoryId: friendCategory.id,
+          totalAmount: pendingTx.amount,
+          type: 'EXPENSE',
+        },
+      });
+
+      const friendBudgetEntry = await tx.ledgerEntry.create({
+        data: {
+          transactionId: friendTransaction.id,
+          userId: pendingTx.payerUserId,
+          friendProfileId: null,
+          amountChange: pendingTx.amount,
+          type: 'BUDGET_DEDUCTION',
+        },
+      });
+
+      const splits = pendingTx.splits as any[];
+      const ledgerEntries: Prisma.LedgerEntryCreateManyInput[] = [];
+      const notifiedFriends: string[] = [];
+
+      const creatorId = pendingTx.creatorId;
+      const payerId = pendingTx.payerId;
+
+      const payerProfile = await tx.friendProfile.findUnique({
+        where: { id: payerId },
+      });
+      if (!payerProfile) {
+        throw new Error('Payer profile not found');
+      }
+
+      for (const split of splits) {
+        if (split.amount <= 0) continue;
+        if (split.profileId === payerId) continue;
+
+        const splitAmount = new Prisma.Decimal(split.amount);
+
+        if (split.profileId === creatorId || split.profileId === 'self') {
+          ledgerEntries.push({
+            transactionId: transaction.id,
+            userId: creatorId,
+            friendProfileId: payerId,
+            amountChange: splitAmount,
+            type: 'PAYABLE',
+          });
+
+          if (!notifiedFriends.includes(pendingTx.payerUserId)) {
+            notifiedFriends.push(pendingTx.payerUserId);
+          }
+
+          let bProfileForA = await tx.friendProfile.findFirst({
+            where: { mainUserId: pendingTx.payerUserId, friendUserId: creatorId },
+          });
+          if (!bProfileForA) {
+            const creatorUser = await tx.user.findUnique({ where: { id: creatorId } });
+            bProfileForA = await tx.friendProfile.create({
+              data: {
+                mainUserId: pendingTx.payerUserId,
+                friendUserId: creatorId,
+                name: creatorUser?.displayName || creatorUser?.username || 'Friend',
+                isGhost: false,
+              },
+            });
+          }
+
+          if (bProfileForA) {
+            ledgerEntries.push({
+              transactionId: friendTransaction.id,
+              userId: pendingTx.payerUserId,
+              friendProfileId: bProfileForA.id,
+              amountChange: splitAmount,
+              type: 'RECEIVABLE',
+            });
+          }
+        } else {
+          const splitProfile = await tx.friendProfile.findUnique({
+            where: { id: split.profileId },
+          });
+          if (!splitProfile) continue;
+
+          const cUserId = splitProfile.friendUserId;
+
+          if (cUserId) {
+            let bProfileForC = await tx.friendProfile.findFirst({
+              where: { mainUserId: pendingTx.payerUserId, friendUserId: cUserId },
+            });
+            if (!bProfileForC) {
+              bProfileForC = await tx.friendProfile.create({
+                data: {
+                  mainUserId: pendingTx.payerUserId,
+                  friendUserId: cUserId,
+                  name: splitProfile.name,
+                  isGhost: false,
+                },
+              });
+            }
+
+            let cProfileForB = await tx.friendProfile.findFirst({
+              where: { mainUserId: cUserId, friendUserId: pendingTx.payerUserId },
+            });
+            if (!cProfileForB) {
+              cProfileForB = await tx.friendProfile.create({
+                data: {
+                  mainUserId: cUserId,
+                  friendUserId: pendingTx.payerUserId,
+                  name: payerProfile.name,
+                  isGhost: false,
+                },
+              });
+            }
+
+            if (bProfileForC && cProfileForB) {
+              ledgerEntries.push({
+                transactionId: friendTransaction.id,
+                userId: pendingTx.payerUserId,
+                friendProfileId: bProfileForC.id,
+                amountChange: splitAmount,
+                type: 'RECEIVABLE',
+              });
+
+              ledgerEntries.push({
+                transactionId: transaction.id,
+                userId: cUserId,
+                friendProfileId: cProfileForB.id,
+                amountChange: splitAmount,
+                type: 'PAYABLE',
+              });
+
+              if (!notifiedFriends.includes(pendingTx.payerUserId)) notifiedFriends.push(pendingTx.payerUserId);
+              if (!notifiedFriends.includes(cUserId)) notifiedFriends.push(cUserId);
+            }
+          } else {
+            ledgerEntries.push({
+              transactionId: transaction.id,
+              userId: creatorId,
+              friendProfileId: payerId,
+              amountChange: splitAmount,
+              type: 'PAYABLE',
+            });
+
+            let bProfileForA = await tx.friendProfile.findFirst({
+              where: { mainUserId: pendingTx.payerUserId, friendUserId: creatorId },
+            });
+            if (!bProfileForA) {
+              const creatorUser = await tx.user.findUnique({ where: { id: creatorId } });
+              bProfileForA = await tx.friendProfile.create({
+                data: {
+                  mainUserId: pendingTx.payerUserId,
+                  friendUserId: creatorId,
+                  name: creatorUser?.displayName || creatorUser?.username || 'Friend',
+                  isGhost: false,
+                },
+              });
+            }
+
+            if (bProfileForA) {
+              ledgerEntries.push({
+                transactionId: friendTransaction.id,
+                userId: pendingTx.payerUserId,
+                friendProfileId: bProfileForA.id,
+                amountChange: splitAmount,
+                type: 'RECEIVABLE',
+              });
+              if (!notifiedFriends.includes(pendingTx.payerUserId)) notifiedFriends.push(pendingTx.payerUserId);
+            }
+
+            ledgerEntries.push({
+              transactionId: transaction.id,
+              userId: creatorId,
+              friendProfileId: split.profileId,
+              amountChange: splitAmount,
+              type: 'RECEIVABLE',
+            });
+          }
+        }
+      }
+
+      if (ledgerEntries.length > 0) {
+        await tx.ledgerEntry.createMany({ data: ledgerEntries });
+      }
+
+      await tx.pendingTransaction.update({
+        where: { id },
+        data: { status: 'APPROVED' },
+      });
+
+      const createdEntries = await tx.ledgerEntry.findMany({
+        where: {
+          OR: [
+            { transactionId: transaction.id },
+            { transactionId: friendTransaction.id },
+          ],
+        },
+      });
+
+      return {
+        transaction,
+        friendTransaction,
+        ledgerEntries: createdEntries,
+        notifiedFriends,
+      };
+    });
+
+    for (const friendUserId of result.notifiedFriends) {
+      if (friendUserId !== pendingTx.payerUserId) {
+        await createNotification({
+          recipientId: friendUserId,
+          actorId: pendingTx.creatorId,
+          type: 'ADDED_TO_SPLIT',
+          data: { transactionId: result.transaction.id, amount: pendingTx.amount.toNumber() },
+        });
+      }
+    }
+
+    await createNotification({
+      recipientId: pendingTx.creatorId,
+      actorId: userId,
+      type: 'TRANSACTION_APPROVED',
+      data: {
+        pendingTransactionId: pendingTx.id,
+        amount: pendingTx.amount.toNumber(),
+      },
+    });
+
+    const txSplits = (pendingTx.splits as any) || [];
+    const involvedFriendIds = txSplits
+      .filter((s: any) => s.profileId !== 'self' && s.profileId !== pendingTx.creatorId)
+      .map((s: any) => s.profileId);
+    if (!involvedFriendIds.includes(pendingTx.payerId)) {
+      involvedFriendIds.push(pendingTx.payerId);
+    }
+    const uniqueInvolvedFriendIds: string[] = Array.from(new Set(involvedFriendIds)) as string[];
+
+    feedService.generateExpensePost(
+      result.transaction.id,
+      pendingTx.message || undefined,
+      pendingTx.isPrivate,
+      pendingTx.allowFriendToPrivate,
+      uniqueInvolvedFriendIds
+    );
+
+    const friendDeductionAmount = pendingTx.amount.toNumber();
+    await checkBudgetMilestones(pendingTx.payerUserId, friendCategory.id, friendDeductionAmount);
+
+    gamificationService.updateStreak(pendingTx.creatorId).catch(console.error);
+    gamificationService.evaluateAndAwardBadges(pendingTx.creatorId).catch(console.error);
+    gamificationService.evaluateChallenges(pendingTx.creatorId).catch(console.error);
+
+    gamificationService.updateStreak(pendingTx.payerUserId).catch(console.error);
+    gamificationService.evaluateAndAwardBadges(pendingTx.payerUserId).catch(console.error);
+    gamificationService.evaluateChallenges(pendingTx.payerUserId).catch(console.error);
+
+    const notifiedFriends = (result.notifiedFriends as string[]) || [];
+    for (const friendId of notifiedFriends) {
+      if (friendId !== pendingTx.creatorId && friendId !== pendingTx.payerUserId) {
+        gamificationService.updateStreak(friendId).catch(console.error);
+        gamificationService.evaluateAndAwardBadges(friendId).catch(console.error);
+        gamificationService.evaluateChallenges(friendId).catch(console.error);
+      }
+    }
+
+    return res.status(200).json({
+      message: 'Transaction approved and recorded successfully.',
+      transaction: result.transaction,
+      friendTransaction: result.friendTransaction,
+      ledgerEntries: result.ledgerEntries,
+    });
+  } catch (error: any) {
+    console.error('Respond to pending transaction error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};

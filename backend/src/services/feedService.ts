@@ -185,4 +185,78 @@ export const feedService = {
       console.error('Failed to generate budget milestone feed post:', error);
     }
   },
+
+  /**
+   * Generates a feed post when a badge is earned.
+   */
+  async generateBadgeEarnedPost(userId: string, badgeSlug: string, badgeName: string) {
+    try {
+      const description = `earned the ${badgeName} badge 🔥`;
+      const content = JSON.stringify({
+        description,
+        badgeName,
+        badgeSlug,
+      });
+
+      await prisma.feedPost.create({
+        data: {
+          userId,
+          type: 'BADGE_EARNED',
+          content,
+          isPublic: false,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to generate badge earned feed post:', error);
+    }
+  },
+
+  /**
+   * Generates a feed post when a challenge is completed.
+   */
+  async generateChallengeCompletedPost(userId: string, challengeId: string, challengeName: string) {
+    try {
+      const description = `completed the ${challengeName} challenge! 🏆`;
+      const content = JSON.stringify({
+        description,
+        challengeName,
+        challengeId,
+      });
+
+      await prisma.feedPost.create({
+        data: {
+          userId,
+          type: 'CHALLENGE_COMPLETED',
+          content,
+          isPublic: false,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to generate challenge completed feed post:', error);
+    }
+  },
+
+  /**
+   * Generates a feed post when a streak milestone is reached.
+   */
+  async generateStreakMilestonePost(userId: string, streakDays: number) {
+    try {
+      const description = `reached a ${streakDays}-day under-budget streak! 🔥`;
+      const content = JSON.stringify({
+        description,
+        streakDays,
+      });
+
+      await prisma.feedPost.create({
+        data: {
+          userId,
+          type: 'STREAK_MILESTONE',
+          content,
+          isPublic: false,
+        },
+      });
+    } catch (error) {
+      console.error('Failed to generate streak milestone feed post:', error);
+    }
+  },
 };

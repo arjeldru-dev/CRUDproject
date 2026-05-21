@@ -9,7 +9,7 @@ export interface FeedPost {
     displayName: string | null;
     avatarUrl: string | null;
   };
-  type: 'EXPENSE_ADDED' | 'SETTLEMENT_COMPLETED' | 'GROUP_SPLIT_CREATED' | 'BUDGET_MILESTONE';
+  type: 'EXPENSE_ADDED' | 'SETTLEMENT_COMPLETED' | 'GROUP_SPLIT_CREATED' | 'BUDGET_MILESTONE' | 'CHALLENGE_COMPLETED' | 'BADGE_EARNED' | 'STREAK_MILESTONE';
   content: {
     description: string;
     amount?: number;
@@ -19,6 +19,13 @@ export interface FeedPost {
     percentage?: number;
     message?: string;
     isPrivate?: boolean;
+    friendUserId?: string | null;
+    allowFriendToPrivate?: boolean;
+    badgeSlug?: string;
+    badgeName?: string;
+    challengeId?: string;
+    challengeName?: string;
+    streakDays?: number;
   };
   isPublic: boolean;
   createdAt: string;

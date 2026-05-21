@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Edit3, User, Activity, Bell, Shield } from 'lucide-react';
+import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Edit3, User, Activity, Bell, Shield, Trophy } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useUiStore } from '../../store/uiStore';
@@ -8,6 +8,7 @@ import TransactionForm from '../TransactionForm';
 import Avatar from '../ui/Avatar';
 import { useNotificationStore } from '../../store/notificationStore';
 import NotificationPanel from '../social/NotificationPanel';
+import { useGamificationStore } from '../../store/gamificationStore';
 
 /** Navigation items rendered in the top bar. */
 const navItems = [
@@ -16,6 +17,7 @@ const navItems = [
   { to: '/friends', label: 'Friends', icon: Users },
   { to: '/categories', label: 'Budget', icon: Wallet },
   { to: '/transactions', label: 'Transactions', icon: Receipt },
+  { to: '/challenges', label: 'Challenges', icon: Trophy },
 ];
 
 /**
@@ -26,7 +28,15 @@ const DashboardLayout: React.FC = () => {
   const { theme, toggleTheme } = useThemeStore();
   const { isTransactionFormOpen, closeTransactionForm, notifyTransactionComplete } = useUiStore();
   const { unreadCount, startPolling, stopPolling, subscribeToPush } = useNotificationStore();
+  const { profile, fetchProfile } = useGamificationStore();
   const navigate = useNavigate();
+
+  // Fetch gamification profile to load active avatar frame on mount
+  useEffect(() => {
+    if (user) {
+      fetchProfile();
+    }
+  }, [user, fetchProfile]);
 
   // ── Avatar Dropdown ─────────────────────────────────────────────
   const [showDropdown, setShowDropdown] = useState(false);
@@ -154,6 +164,7 @@ const DashboardLayout: React.FC = () => {
                     src={user?.avatarUrl}
                     name={avatarName}
                     size="sm"
+                    frameClass={profile?.activeFrame?.cssClass || undefined}
                   />
                   <span className="text-sm font-medium text-muted hidden lg:block pr-1 max-w-[140px] truncate">
                     {user?.displayName || user?.email}

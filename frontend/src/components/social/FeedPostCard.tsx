@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { TrendingUp, CreditCard, CheckCircle, Target, MoreHorizontal, Trash2, Eye, EyeOff, Lock, Edit3 } from 'lucide-react';
+import { TrendingUp, CreditCard, CheckCircle, Target, MoreHorizontal, Trash2, Eye, EyeOff, Lock, Edit3, Award, Trophy, Flame } from 'lucide-react';
 import { useFeedStore, type FeedPost } from '../../store/feedStore';
 import { useAuthStore } from '../../store/authStore';
 import Avatar from '../ui/Avatar';
@@ -30,6 +30,12 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({ post }) => {
         return <CheckCircle className="w-4 h-4 text-success" />;
       case 'BUDGET_MILESTONE':
         return <Target className="w-4 h-4 text-primary" />;
+      case 'BADGE_EARNED':
+        return <Award className="w-4 h-4 text-amber-500" />;
+      case 'CHALLENGE_COMPLETED':
+        return <Trophy className="w-4 h-4 text-yellow-500 animate-bounce" />;
+      case 'STREAK_MILESTONE':
+        return <Flame className="w-4 h-4 text-orange-500 animate-pulse" />;
       default:
         return <CreditCard className="w-4 h-4 text-muted" />;
     }
@@ -148,11 +154,18 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({ post }) => {
         <div>
           {post.type !== 'BUDGET_MILESTONE' && (
             <h4 className="font-display font-bold text-2xl tracking-tight text-foreground">
-              {post.content.categoryName || (post.type === 'SETTLEMENT_COMPLETED' ? 'Settlement' : 'Transaction')}
+              {post.type === 'BADGE_EARNED'
+                ? 'Badge Unlocked'
+                : post.type === 'CHALLENGE_COMPLETED'
+                ? 'Challenge Completed'
+                : post.type === 'STREAK_MILESTONE'
+                ? 'Streak Milestone'
+                : post.content.categoryName || (post.type === 'SETTLEMENT_COMPLETED' ? 'Settlement' : 'Transaction')
+              }
             </h4>
           )}
           <p className="text-foreground/80 text-[1.05rem] mt-1 leading-relaxed">
-            {post.type === 'BUDGET_MILESTONE' 
+            {['BUDGET_MILESTONE', 'BADGE_EARNED', 'CHALLENGE_COMPLETED', 'STREAK_MILESTONE'].includes(post.type)
               ? post.content.description 
               : (post.content.description.includes(' — ') 
                   ? post.content.description.split(' — ')[1] 
@@ -160,6 +173,36 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({ post }) => {
             }
           </p>
         </div>
+
+        {post.type === 'BADGE_EARNED' && post.content.badgeName && (
+          <div className="mt-4 flex items-center gap-3 p-4 bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border border-amber-500/20 rounded-2xl">
+            <span className="text-3xl">🏅</span>
+            <div>
+              <span className="font-semibold text-amber-500 text-sm block">Badge Unlocked!</span>
+              <span className="font-bold text-foreground text-lg">{post.content.badgeName}</span>
+            </div>
+          </div>
+        )}
+
+        {post.type === 'CHALLENGE_COMPLETED' && post.content.challengeName && (
+          <div className="mt-4 flex items-center gap-3 p-4 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-2xl">
+            <span className="text-3xl">🏆</span>
+            <div>
+              <span className="font-semibold text-emerald-500 text-sm block">Challenge Completed!</span>
+              <span className="font-bold text-foreground text-lg">{post.content.challengeName}</span>
+            </div>
+          </div>
+        )}
+
+        {post.type === 'STREAK_MILESTONE' && post.content.streakDays && (
+          <div className="mt-4 flex items-center gap-3 p-4 bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20 rounded-2xl">
+            <span className="text-3xl">🔥</span>
+            <div>
+              <span className="font-semibold text-orange-500 text-sm block">Streak Milestone!</span>
+              <span className="font-bold text-foreground text-lg">{post.content.streakDays}-Day Streak Reached</span>
+            </div>
+          </div>
+        )}
 
         {isEditing ? (
           <div className="mt-3 space-y-2">

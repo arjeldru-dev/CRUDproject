@@ -132,6 +132,18 @@ function getNotificationText(type: NotificationType, actorName: string, data?: a
       return `${actorName} commented on your post.`;
     case 'SETTLEMENT_REMINDER':
       return `${actorName} sent you a settlement reminder.`;
+    case 'CHALLENGE_INVITE':
+      return `${actorName} invited you to a challenge: ${data?.challengeName}`;
+    case 'BADGE_UNLOCKED':
+      return `You earned the ${data?.badgeName} badge! 🏅`;
+    case 'STREAK_MILESTONE':
+      return `You're on a ${data?.streakDays}-day streak! 🔥`;
+    case 'CHALLENGE_COMPLETED':
+      return `You completed the ${data?.challengeName} challenge! 🏆`;
+    case 'TRANSACTION_APPROVAL_REQUEST':
+      return `${actorName} asked you to approve a transaction of ₱${data?.amount}.`;
+    case 'TRANSACTION_APPROVED':
+      return `${actorName} approved your transaction of ₱${data?.amount}.`;
     default:
       return `${actorName} triggered a notification.`;
   }
@@ -148,10 +160,19 @@ function getNotificationUrl(type: NotificationType, data?: any): string {
     case 'ADDED_TO_SPLIT':
     case 'BALANCE_CHANGED':
     case 'SETTLEMENT_REMINDER':
+    case 'TRANSACTION_APPROVED':
       return `${baseUrl}/transactions`;
+    case 'TRANSACTION_APPROVAL_REQUEST':
+      return `${baseUrl}/`;
     case 'FEED_REACTION':
     case 'FEED_COMMENT':
       return `${baseUrl}/feed`;
+    case 'CHALLENGE_INVITE':
+    case 'CHALLENGE_COMPLETED':
+      return `${baseUrl}/challenges`;
+    case 'BADGE_UNLOCKED':
+    case 'STREAK_MILESTONE':
+      return `${baseUrl}/challenges?tab=badges`;
     default:
       return `${baseUrl}/notifications`;
   }

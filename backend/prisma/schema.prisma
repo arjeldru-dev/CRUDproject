@@ -37,6 +37,12 @@ model User {
   reactions    Reaction[]
   comments     Comment[]
 
+  // Gamification relations
+  gamification              UserGamification?
+  badges                    UserBadge[]
+  challengesCreated         Challenge[]
+  challengeParticipations   ChallengeParticipant[]
+
   // Privacy & Blocking relations
   privacySettings PrivacySettings?
   blockedUsers    BlockedUser[] @relation("Blocker")
@@ -46,6 +52,9 @@ model User {
   notificationsReceived Notification[]     @relation("NotificationRecipient")
   notificationsActed    Notification[]     @relation("NotificationActor")
   pushSubscriptions     PushSubscription[]
+
+  // Pending Transactions
+  pendingTransactions PendingTransaction[] @relation("PendingTransactionCreator")
 
   @@index([username])
   @@map("users")
@@ -113,6 +122,7 @@ model Category {
   // Relationships
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
+  challenges   Challenge[]
 
   @@map("categories")
 }
@@ -168,6 +178,9 @@ enum FeedPostType {
   SETTLEMENT_COMPLETED
   GROUP_SPLIT_CREATED
   BUDGET_MILESTONE
+  CHALLENGE_COMPLETED
+  BADGE_EARNED
+  STREAK_MILESTONE
 }
 
 model FeedPost {
@@ -258,6 +271,12 @@ enum NotificationType {
   FEED_REACTION
   FEED_COMMENT
   SETTLEMENT_REMINDER
+  CHALLENGE_INVITE
+  BADGE_UNLOCKED
+  STREAK_MILESTONE
+  CHALLENGE_COMPLETED
+  TRANSACTION_APPROVAL_REQUEST
+  TRANSACTION_APPROVED
 }
 
 model Notification {
@@ -298,4 +317,142 @@ model AuditLog {
   metadata  String?
   createdAt DateTime @default(now()) @map("created_at")
   @@map("audit_logs")
+}
+
+// ── Gamification System ───────────────────────────────────────────────
+
+enum ChallengeStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum ChallengeType {
+  NO_OVERSPEND_WEEK
+  NO_OVERSPEND_MONTH
+  COFFEE_FREE_WEEK
+  TRANSPORT_SAVER
+  CUSTOM
+}
+
+enum BadgeRarity {
+  COMMON
+  UNCOMMON
+  RARE
+  EPIC
+  LEGENDARY
+}
+
+model UserGamification {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @unique @map("user_id") @db.Uuid
+  currentStreak  Int       @default(0) @map("current_streak")
+  longestStreak  Int       @default(0) @map("longest_streak")
+  lastStreakDate DateTime? @map("last_streak_date") @db.Date
+  totalPoints    Int       @default(0) @map("total_points")
+  activeFrameId  String?   @map("active_frame_id") @db.Uuid
+  timezone       String    @default("UTC") @map("timezone")
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeFrame AvatarFrame? @relation(fields: [activeFrameId], references: [id], onDelete: SetNull)
+
+  @@map("user_gamification")
+}
+
+model Badge {
+  id            String      @id @default(uuid()) @db.Uuid
+  slug          String      @unique
+  name          String
+  description   String
+  iconUrl       String      @map("icon_url")
+  rarity        BadgeRarity
+  pointsAwarded Int         @map("points_awarded")
+  requirement   String      // JSON — machine-readable unlock criteria
+
+  userBadges UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  badgeId    String   @map("badge_id") @db.Uuid
+  unlockedAt DateTime @default(now()) @map("unlocked_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeId])
+  @@map("user_badges")
+}
+
+model AvatarFrame {
+  id             String @id @default(uuid()) @db.Uuid
+  slug           String @unique
+  name           String
+  cssClass       String @default("") @map("css_class")
+  pointsRequired Int    @default(0) @map("points_required")
+  sortOrder      Int    @default(0) @map("sort_order")
+
+  gamificationProfiles UserGamification[]
+
+  @@map("avatar_frames")
+}
+
+model Challenge {
+  id          String          @id @default(uuid()) @db.Uuid
+  creatorId   String          @map("creator_id") @db.Uuid
+  type        ChallengeType
+  name        String
+  description String
+  categoryId  String?         @map("category_id") @db.Uuid
+  startDate   DateTime        @map("start_date") @db.Date
+  endDate     DateTime        @map("end_date") @db.Date
+  status      ChallengeStatus @default(ACTIVE)
+  createdAt   DateTime        @default(now()) @map("created_at")
+
+  creator      User                   @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  category     Category?              @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  participants ChallengeParticipant[]
+
+  @@index([creatorId])
+  @@index([status])
+  @@map("challenges")
+}
+
+model ChallengeParticipant {
+  id          String    @id @default(uuid()) @db.Uuid
+  challengeId String    @map("challenge_id") @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  accepted    Boolean   @default(false)
+  failedAt    DateTime? @map("failed_at")
+  completedAt DateTime? @map("completed_at")
+  joinedAt    DateTime  @default(now()) @map("joined_at")
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@map("challenge_participants")
+}
+
+model PendingTransaction {
+  id                   String   @id @default(uuid()) @db.Uuid
+  creatorId            String   @map("creator_id") @db.Uuid
+  payerId              String   @map("payer_id") @db.Uuid
+  payerUserId          String   @map("payer_user_id") @db.Uuid
+  categoryId           String?  @map("category_id") @db.Uuid
+  amount               Decimal  @db.Decimal(10, 2)
+  splits               Json
+  message              String?  @db.VarChar(255)
+  isPrivate            Boolean  @default(false) @map("is_private")
+  allowFriendToPrivate Boolean  @default(true) @map("allow_friend_to_private")
+  status               String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  creator              User     @relation("PendingTransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+
+  @@map("pending_transactions")
 }

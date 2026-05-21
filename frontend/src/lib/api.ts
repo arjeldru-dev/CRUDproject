@@ -28,6 +28,16 @@ api.interceptors.request.use(
         // Corrupt storage — skip silently
       }
     }
+
+    try {
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (timezone) {
+        config.headers['x-timezone'] = timezone;
+      }
+    } catch {
+      // Skip timezone header if browser doesn't support it
+    }
+
     return config;
   },
   (error) => Promise.reject(error),

@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node dist/server.js",
     "dev": "nodemon src/server.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "seed:gamification": "ts-node prisma/seed-gamification.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

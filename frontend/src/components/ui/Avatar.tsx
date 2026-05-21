@@ -11,6 +11,8 @@ interface AvatarProps {
   className?: string;
   /** Click handler (used for avatar upload trigger). */
   onClick?: () => void;
+  /** CSS classes for avatar frame ring (from AvatarFrame.cssClass) */
+  frameClass?: string;
 }
 
 const sizeMap: Record<string, { container: string; text: string }> = {
@@ -51,6 +53,7 @@ const Avatar: React.FC<AvatarProps> = ({
   size = 'md',
   className = '',
   onClick,
+  frameClass,
 }) => {
   const { container, text } = sizeMap[size];
   const initials = getInitials(name);
@@ -60,36 +63,53 @@ const Avatar: React.FC<AvatarProps> = ({
     rounded-xl flex items-center justify-center overflow-hidden
     font-display font-semibold select-none shrink-0
     transition-all duration-200
-    ${onClick ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}
+    ${onClick && !frameClass ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}
     ${container} ${text} ${className}
   `;
 
-  if (src) {
+  const renderAvatar = () => {
+    if (src) {
+      return (
+        <div className={baseClasses} onClick={frameClass ? undefined : onClick}>
+          <img
+            src={src}
+            alt={`${name}'s avatar`}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              // On load error, hide image so initials fallback shows
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        </div>
+      );
+    }
+
     return (
-      <div className={baseClasses} onClick={onClick}>
-        <img
-          src={src}
-          alt={`${name}'s avatar`}
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            // On load error, hide image so initials fallback shows
-            (e.target as HTMLImageElement).style.display = 'none';
-          }}
-        />
+      <div
+        className={baseClasses}
+        onClick={frameClass ? undefined : onClick}
+        style={{ backgroundColor: bgColor }}
+        aria-label={`${name}'s avatar`}
+      >
+        <span className="text-white drop-shadow-sm">{initials}</span>
+      </div>
+    );
+  };
+
+  if (frameClass) {
+    return (
+      <div
+        className={`relative inline-flex rounded-xl p-[2px] transition-all duration-200 ${frameClass} ${
+          onClick ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''
+        }`}
+        onClick={onClick}
+      >
+        {renderAvatar()}
       </div>
     );
   }
 
-  return (
-    <div
-      className={baseClasses}
-      onClick={onClick}
-      style={{ backgroundColor: bgColor }}
-      aria-label={`${name}'s avatar`}
-    >
-      <span className="text-white drop-shadow-sm">{initials}</span>
-    </div>
-  );
+  return renderAvatar();
 };
 
 export default Avatar;

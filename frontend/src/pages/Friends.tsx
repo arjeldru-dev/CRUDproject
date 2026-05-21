@@ -6,8 +6,9 @@ import Input from '../components/ui/Input';
 import Avatar from '../components/ui/Avatar';
 import {
   Users, Search, AlertCircle, UserPlus, Clock, Send,
-  Check, X, Ghost, ChevronDown, ChevronUp, QrCode, Mail, Link2, Trash2,
+  Check, X, Ghost, ChevronDown, ChevronUp, QrCode, Mail, Link2, Trash2, Trophy,
 } from 'lucide-react';
+import Leaderboard from '../components/gamification/Leaderboard';
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface FriendListItem {
@@ -44,12 +45,13 @@ interface GhostProfile {
   isGhost: boolean;
 }
 
-type TabKey = 'friends' | 'requests' | 'discover';
+type TabKey = 'friends' | 'requests' | 'discover' | 'leaderboard';
 
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'friends', label: 'My Friends', icon: Users },
   { key: 'requests', label: 'Requests', icon: Clock },
   { key: 'discover', label: 'Discover', icon: Search },
+  { key: 'leaderboard', label: 'Leaderboard', icon: Trophy },
 ];
 
 // ── Main Component ────────────────────────────────────────────────────
@@ -699,6 +701,13 @@ const Friends: React.FC = () => {
               </p>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ═══ LEADERBOARD TAB ═══ */}
+      {activeTab === 'leaderboard' && (
+        <div className="animate-fadeInFast">
+          <Leaderboard />
         </div>
       )}
 

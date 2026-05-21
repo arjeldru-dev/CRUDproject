@@ -12,6 +12,7 @@ import profileRoutes from './routes/profileRoutes';
 import feedRoutes from './routes/feedRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import privacyRoutes from './routes/privacyRoutes';
+import gamificationRoutes from './routes/gamificationRoutes';
 
 dotenv.config();
 
@@ -42,6 +43,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/feed', feedRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/settings', privacyRoutes);
+app.use('/api/gamification', gamificationRoutes);
 
 app.listen(PORT, async () => {
   try {

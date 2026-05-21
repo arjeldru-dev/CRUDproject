@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, Eye, Lock, Globe, Users, Trash2, AlertCircle } from 'lucide-react';
+import { Shield, AlertCircle } from 'lucide-react';
 import api from '../lib/api';
-import { useAuthStore } from '../store/authStore';
 
 interface PrivacySettingsData {
   profileVisibility: 'PUBLIC' | 'FRIENDS_ONLY' | 'PRIVATE';
@@ -19,7 +18,6 @@ interface BlockedUser {
 }
 
 const PrivacySettings: React.FC = () => {
-  const { user } = useAuthStore();
   const [settings, setSettings] = useState<PrivacySettingsData>({
     profileVisibility: 'PUBLIC',
     debtVisibility: 'FRIENDS_ONLY',

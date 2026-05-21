@@ -292,12 +292,55 @@ export const getPublicProfile = async (req: Request, res: Response) => {
       mutualFriendCount = mutual;
     }
 
+    let gamificationData = null;
+    if (friendshipStatus === 'friends' || friendshipStatus === 'self') {
+      const gamification = await prisma.userGamification.findUnique({
+        where: { userId: user.id },
+        include: {
+          activeFrame: {
+            select: {
+              cssClass: true,
+            },
+          },
+        },
+      });
+
+      const badgeCount = await prisma.userBadge.count({
+        where: { userId: user.id },
+      });
+
+      const recentBadges = await prisma.userBadge.findMany({
+        where: { userId: user.id },
+        orderBy: { unlockedAt: 'desc' },
+        take: 3,
+        include: {
+          badge: {
+            select: {
+              id: true,
+              slug: true,
+              name: true,
+              iconUrl: true,
+            },
+          },
+        },
+      });
+
+      gamificationData = {
+        currentStreak: gamification?.currentStreak ?? 0,
+        totalPoints: gamification?.totalPoints ?? 0,
+        badgeCount,
+        recentBadges: recentBadges.map((ub) => ub.badge),
+        activeFrame: gamification?.activeFrame ?? null,
+      };
+    }
+
     return res.status(200).json({
       profile: {
         ...user,
         friendshipStatus,
         ...(sharedSplitCount !== undefined && { sharedSplitCount }),
         ...(mutualFriendCount !== undefined && { mutualFriendCount }),
+        ...(gamificationData && { gamification: gamificationData }),
       },
     });
   } catch (error) {

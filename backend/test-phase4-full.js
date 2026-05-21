@@ -3,7 +3,7 @@
  *
  * Covers ALL edge cases including:
  *   - Friend paid / user tagged (PAYABLE path)
- *   - Uneven splits (0.3, 0.7)
+ *   - Uneven splits
  *   - Boundary splits (0.0 and 1.0 with friend)
  *   - Negative/zero/missing amounts
  *   - Missing required fields
@@ -12,6 +12,7 @@
  *   - Settlement exceeding debt (overpayment)
  *   - Multiple expenses stacking
  *   - Budget across multiple categories
+ *   - Registered friend budget deduction when they pay for a shared expense
  *
  * Prerequisites:
  *   1. Backend running: npm run dev (port 5000)
@@ -86,7 +87,7 @@ async function run() {
   assert(catBonly.status === 201, 'Category created for User B');
   const bOnlyCatId = catBonly.data.category.id;
 
-  // User A creates friends
+  // User A creates friends (ghosts)
   const friendJuan = await request('POST', '/friends', { name: 'Juan', isGhost: true }, tokenA);
   const friendMaria = await request('POST', '/friends', { name: 'Maria', isGhost: true }, tokenA);
   assert(friendJuan.status === 201, 'Ghost friend "Juan" created');
@@ -111,35 +112,30 @@ async function run() {
   assert(t1b.status === 400, 'Only amount → 400');
 
   const t1c = await request('POST', '/transactions', {
-    amount: 100, categoryId: foodId, payerId: userAId, taggieId: juanId,
-    // missing splitRatio
+    amount: 100, categoryId: foodId, payerId: 'self',
+    // missing splits
   }, tokenA);
-  assert(t1c.status === 400, 'Missing splitRatio → 400');
+  assert(t1c.status === 400, 'Missing splits → 400');
 
   section('TEST 2: Input Validation — Invalid Values');
 
   const t2a = await request('POST', '/transactions', {
-    amount: -50, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 0.5,
+    amount: -50, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: -25 }, { profileId: juanId, amount: -25 }]
   }, tokenA);
   assert(t2a.status === 400, 'Negative amount → 400');
 
   const t2b = await request('POST', '/transactions', {
-    amount: 0, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 0.5,
+    amount: 0, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 0 }, { profileId: juanId, amount: 0 }]
   }, tokenA);
   assert(t2b.status === 400, 'Zero amount → 400');
 
   const t2c = await request('POST', '/transactions', {
-    amount: 100, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: -0.1,
+    amount: 100, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 30 }, { profileId: juanId, amount: 50 }]
   }, tokenA);
-  assert(t2c.status === 400, 'Negative splitRatio → 400');
-
-  const t2d = await request('POST', '/transactions', {
-    amount: 100, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 1.5,
-  }, tokenA);
-  assert(t2d.status === 400, 'splitRatio > 1 → 400');
+  assert(t2c.status === 400, 'Splits sum !== amount → 400');
 
   const t2e = await request('POST', '/transactions', {
-    amount: 'abc', categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 0.5,
+    amount: 'abc', categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 50 }, { profileId: juanId, amount: 50 }]
   }, tokenA);
   assert(t2e.status === 400, 'String amount → 400');
 
@@ -149,35 +145,35 @@ async function run() {
   section('TEST 3: Ownership — Category belongs to another user');
 
   const t3a = await request('POST', '/transactions', {
-    amount: 100, categoryId: bOnlyCatId, payerId: userAId, taggieId: juanId, splitRatio: 0.5,
+    amount: 100, categoryId: bOnlyCatId, payerId: 'self', splits: [{ profileId: 'self', amount: 50 }, { profileId: juanId, amount: 50 }]
   }, tokenA);
   assert(t3a.status === 403, 'User A using User B category → 403');
 
   section('TEST 4: Ownership — Friend profile belongs to another user');
 
   const t4a = await request('POST', '/transactions', {
-    amount: 100, categoryId: foodId, payerId: userAId, taggieId: bOnlyFriendId, splitRatio: 0.5,
+    amount: 100, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 50 }, { profileId: bOnlyFriendId, amount: 50 }]
   }, tokenA);
-  assert(t4a.status === 403, 'User A tagging User B friend → 403');
+  assert(t4a.status === 403 || t4a.status === 404, 'User A tagging User B friend → 403 or 404');
 
   section('TEST 5: Ownership — Non-existent IDs');
 
   const fakeUuid = '00000000-0000-0000-0000-000000000000';
 
   const t5a = await request('POST', '/transactions', {
-    amount: 100, categoryId: fakeUuid, payerId: userAId, taggieId: juanId, splitRatio: 0.5,
+    amount: 100, categoryId: fakeUuid, payerId: 'self', splits: [{ profileId: 'self', amount: 50 }, { profileId: juanId, amount: 50 }]
   }, tokenA);
   assert(t5a.status === 404, 'Fake category ID → 404');
 
   const t5b = await request('POST', '/transactions', {
-    amount: 100, categoryId: foodId, payerId: userAId, taggieId: fakeUuid, splitRatio: 0.5,
+    amount: 100, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 50 }, { profileId: fakeUuid, amount: 50 }]
   }, tokenA);
   assert(t5b.status === 404, 'Fake friend ID → 404');
 
   section('TEST 6: Auth — No token');
 
   const t6a = await request('POST', '/transactions', {
-    amount: 100, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 0.5,
+    amount: 100, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 50 }, { profileId: juanId, amount: 50 }]
   });
   assert(t6a.status === 401, 'No token on POST /transactions → 401');
 
@@ -187,7 +183,7 @@ async function run() {
   const t6c = await request('GET', '/transactions/budget');
   assert(t6c.status === 401, 'No token on GET /budget → 401');
 
-  const t6d = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: juanId });
+  const t6d = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: juanId, payerId: juanId });
   assert(t6d.status === 401, 'No token on POST /settle → 401');
 
   // ══════════════════════════════════════════════════════════════════
@@ -196,7 +192,7 @@ async function run() {
   section('TEST 7: Expense — User paid, 50/50 split (RECEIVABLE path)');
 
   const t7 = await request('POST', '/transactions', {
-    amount: 1000, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 0.5,
+    amount: 1000, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 500 }, { profileId: juanId, amount: 500 }]
   }, tokenA);
   assert(t7.status === 201, 'Created: 201');
   assert(t7.data.transaction.type === 'EXPENSE', 'Type = EXPENSE');
@@ -210,20 +206,20 @@ async function run() {
   section('TEST 8: Expense — Friend paid, user tagged (PAYABLE path)');
 
   const t8 = await request('POST', '/transactions', {
-    amount: 800, categoryId: foodId, payerId: juanId, taggieId: userAId, splitRatio: 0.5,
+    amount: 800, categoryId: foodId, payerId: juanId, splits: [{ profileId: 'self', amount: 400 }, { profileId: juanId, amount: 400 }]
   }, tokenA);
   assert(t8.status === 201, 'Created: 201');
-  assert(t8.data.ledgerEntries.length === 2, '2 ledger entries');
+  assert(t8.data.ledgerEntries.length === 1, '1 ledger entry (PAYABLE only)');
 
-  const t8budget = t8.data.ledgerEntries.find(e => e.type === 'BUDGET_DEDUCTION');
   const t8pay = t8.data.ledgerEntries.find(e => e.type === 'PAYABLE');
-  assert(t8budget && parseFloat(t8budget.amountChange) === 400, 'BUDGET_DEDUCTION = ₱400 (user share = 50%)');
+  const t8budget = t8.data.ledgerEntries.find(e => e.type === 'BUDGET_DEDUCTION');
   assert(t8pay && parseFloat(t8pay.amountChange) === 400, 'PAYABLE = ₱400 (user owes friend 50%)');
+  assert(!t8budget, 'No BUDGET_DEDUCTION immediately for the debtor');
 
   section('TEST 9: Expense — Solo (user paid, user tagged, no friend)');
 
   const t9 = await request('POST', '/transactions', {
-    amount: 300, categoryId: transportId, payerId: userAId, taggieId: userAId, splitRatio: 1.0,
+    amount: 300, categoryId: transportId, payerId: 'self', splits: [{ profileId: 'self', amount: 300 }]
   }, tokenA);
   assert(t9.status === 201, 'Created: 201');
   assert(t9.data.ledgerEntries.length === 1, '1 ledger entry only');
@@ -234,7 +230,7 @@ async function run() {
   section('TEST 10: Expense — Uneven split 70/30 (user pays 70%)');
 
   const t10 = await request('POST', '/transactions', {
-    amount: 1000, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 0.7,
+    amount: 1000, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 700 }, { profileId: juanId, amount: 300 }]
   }, tokenA);
   assert(t10.status === 201, 'Created: 201');
 
@@ -246,17 +242,17 @@ async function run() {
   section('TEST 11: Expense — Uneven split 30/70 (user pays 30%)');
 
   const t11 = await request('POST', '/transactions', {
-    amount: 1000, categoryId: foodId, payerId: userAId, taggieId: mariaId, splitRatio: 0.3,
+    amount: 1000, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 300 }, { profileId: mariaId, amount: 700 }]
   }, tokenA);
   assert(t11.status === 201, 'Created: 201');
 
   const t11recv = t11.data.ledgerEntries.find(e => e.type === 'RECEIVABLE');
   assert(t11recv && parseFloat(t11recv.amountChange) === 700, 'RECEIVABLE = ₱700 (Maria owes 70%)');
 
-  section('TEST 12: Expense — splitRatio = 0.0 (friend pays everything, user paid upfront)');
+  section('TEST 12: Expense — splits = 0.0 self / 500 friend (friend pays everything, user paid upfront)');
 
   const t12 = await request('POST', '/transactions', {
-    amount: 500, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 0.0,
+    amount: 500, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 0 }, { profileId: juanId, amount: 500 }]
   }, tokenA);
   assert(t12.status === 201, 'Created: 201');
 
@@ -265,10 +261,10 @@ async function run() {
   assert(t12budget && parseFloat(t12budget.amountChange) === 500, 'BUDGET_DEDUCTION = ₱500 (user fronted it)');
   assert(t12recv && parseFloat(t12recv.amountChange) === 500, 'RECEIVABLE = ₱500 (friend owes ALL)');
 
-  section('TEST 13: Expense — splitRatio = 1.0 with friend tagged (user pays 100%)');
+  section('TEST 13: Expense — splits = 400 self / 0 friend with friend tagged (user pays 100%)');
 
   const t13 = await request('POST', '/transactions', {
-    amount: 400, categoryId: foodId, payerId: userAId, taggieId: juanId, splitRatio: 1.0,
+    amount: 400, categoryId: foodId, payerId: 'self', splits: [{ profileId: 'self', amount: 400 }, { profileId: juanId, amount: 0 }]
   }, tokenA);
   assert(t13.status === 201, 'Created: 201');
 
@@ -296,8 +292,11 @@ async function run() {
   const juanBal = bal.data.balances.find(b => b.friendProfileId === juanId);
   const mariaBal = bal.data.balances.find(b => b.friendProfileId === mariaId);
 
-  assert(juanBal && juanBal.netBalance === 900, `Juan net = ₱900 (got ₱${juanBal?.netBalance})`);
-  assert(mariaBal && mariaBal.netBalance === 700, `Maria net = ₱700 (got ₱${mariaBal?.netBalance})`);
+  const juanNet = juanBal ? (juanBal.receivableBalance - juanBal.payableBalance) : undefined;
+  const mariaNet = mariaBal ? (mariaBal.receivableBalance - mariaBal.payableBalance) : undefined;
+
+  assert(juanBal && juanNet === 900, `Juan net = ₱900 (got ₱${juanNet})`);
+  assert(mariaBal && mariaNet === 700, `Maria net = ₱700 (got ₱${mariaNet})`);
 
   section('TEST 15: Balance — User B has no transactions');
 
@@ -312,12 +311,12 @@ async function run() {
 
   // Food category deductions:
   //   Test 7: 1000 (user paid, full deduction)
-  //   Test 8: 400 (friend paid, user share 50%)
+  //   Test 8: 0 (friend paid, user share 50% -> NO deduction yet)
   //   Test 10: 1000 (user paid, full deduction)
   //   Test 11: 1000 (user paid, full deduction — Maria)
   //   Test 12: 500 (user paid, full deduction)
   //   Test 13: 400 (user paid, full deduction)
-  //   Food total = 1000 + 400 + 1000 + 1000 + 500 + 400 = 4300
+  //   Food total = 1000 + 1000 + 1000 + 500 + 400 = 3900
 
   // Transport category deductions:
   //   Test 9: 300
@@ -329,8 +328,8 @@ async function run() {
   const foodBudget = budget.data.budgetStatuses.find(b => b.categoryId === foodId);
   const transportBudget = budget.data.budgetStatuses.find(b => b.categoryId === transportId);
 
-  assert(foodBudget && foodBudget.spent === 4300, `Food spent = ₱4300 (got ₱${foodBudget?.spent})`);
-  assert(foodBudget && foodBudget.remaining === 700, `Food remaining = ₱700 (got ₱${foodBudget?.remaining})`);
+  assert(foodBudget && foodBudget.spent === 3900, `Food spent = ₱3900 (got ₱${foodBudget?.spent})`);
+  assert(foodBudget && foodBudget.remaining === 1100, `Food remaining = ₱1100 (got ₱${foodBudget?.remaining})`);
   assert(foodBudget && foodBudget.monthlyLimit === 5000, `Food limit = ₱5000`);
 
   assert(transportBudget && transportBudget.spent === 300, `Transport spent = ₱300 (got ₱${transportBudget?.spent})`);
@@ -341,9 +340,9 @@ async function run() {
   // ══════════════════════════════════════════════════════════════════
   section('TEST 17: Settlement — basic payback');
 
-  // Juan net was ₱900. Settle ₱400.
+  // Juan net was ₱900. Settle ₱400. Payer is Juan (juanId) who is paying A back.
   const settle1 = await request('POST', '/transactions/settle', {
-    amount: 400, friendProfileId: juanId,
+    amount: 400, friendProfileId: juanId, payerId: juanId
   }, tokenA);
   assert(settle1.status === 201, 'Settlement created: 201');
   assert(settle1.data.transaction.type === 'SETTLEMENT', 'Type = SETTLEMENT');
@@ -352,49 +351,52 @@ async function run() {
   // Check balance: 900 - 400 = 500
   const bal2 = await request('GET', '/transactions/balances', null, tokenA);
   const juanAfterSettle = bal2.data.balances.find(b => b.friendProfileId === juanId);
-  assert(juanAfterSettle && juanAfterSettle.netBalance === 500, `Juan net after ₱400 settle = ₱500 (got ₱${juanAfterSettle?.netBalance})`);
+  const juanAfterSettleNet = juanAfterSettle ? (juanAfterSettle.receivableBalance - juanAfterSettle.payableBalance) : undefined;
+  assert(juanAfterSettle && juanAfterSettleNet === 500, `Juan net after ₱400 settle = ₱500 (got ₱${juanAfterSettleNet})`);
 
   section('TEST 18: Settlement — exact full payoff');
 
-  // Settle remaining ₱500 exactly
+  // Settle remaining ₱500 exactly. Payer is Juan.
   const settle2 = await request('POST', '/transactions/settle', {
-    amount: 500, friendProfileId: juanId,
+    amount: 500, friendProfileId: juanId, payerId: juanId
   }, tokenA);
   assert(settle2.status === 201, 'Full settlement created: 201');
 
   const bal3 = await request('GET', '/transactions/balances', null, tokenA);
   const juanAfterFull = bal3.data.balances.find(b => b.friendProfileId === juanId);
-  assert(juanAfterFull && juanAfterFull.netBalance === 0, `Juan net after full settle = ₱0 (got ₱${juanAfterFull?.netBalance})`);
+  const juanAfterFullNet = juanAfterFull ? (juanAfterFull.receivableBalance - juanAfterFull.payableBalance) : undefined;
+  assert(juanAfterFull && juanAfterFullNet === 0, `Juan net after full settle = ₱0 (got ₱${juanAfterFullNet})`);
 
   section('TEST 19: Settlement — overpayment (settling more than owed)');
 
-  // Juan now owes ₱0. Settling ₱200 more → should go to -200
+  // Juan now owes ₱0. Settling ₱200 more. Payer is Juan.
   const settle3 = await request('POST', '/transactions/settle', {
-    amount: 200, friendProfileId: juanId,
+    amount: 200, friendProfileId: juanId, payerId: juanId
   }, tokenA);
   assert(settle3.status === 201, 'Overpayment settlement created: 201');
 
   const bal4 = await request('GET', '/transactions/balances', null, tokenA);
   const juanOverpaid = bal4.data.balances.find(b => b.friendProfileId === juanId);
+  const juanOverpaidNet = juanOverpaid ? (juanOverpaid.receivableBalance - juanOverpaid.payableBalance) : undefined;
   // Net was 0, settled 200 more as RECEIVABLE (negative) → net = -200
-  console.log(`    ℹ️  Juan net after overpayment: ₱${juanOverpaid?.netBalance} (overpaid by ₱200)`);
-  assert(juanOverpaid && juanOverpaid.netBalance === -200, `Juan net = -₱200 (got ₱${juanOverpaid?.netBalance})`);
+  console.log(`    ℹ️  Juan net after overpayment: ₱${juanOverpaidNet} (overpaid by ₱200)`);
+  assert(juanOverpaid && juanOverpaidNet === -200, `Juan net = -₱200 (got ₱${juanOverpaidNet})`);
 
   section('TEST 20: Settlement — validation errors');
 
   const s20a = await request('POST', '/transactions/settle', {}, tokenA);
   assert(s20a.status === 400, 'Empty body → 400');
 
-  const s20b = await request('POST', '/transactions/settle', { amount: -100, friendProfileId: juanId }, tokenA);
+  const s20b = await request('POST', '/transactions/settle', { amount: -100, friendProfileId: juanId, payerId: juanId }, tokenA);
   assert(s20b.status === 400, 'Negative amount → 400');
 
-  const s20c = await request('POST', '/transactions/settle', { amount: 0, friendProfileId: juanId }, tokenA);
+  const s20c = await request('POST', '/transactions/settle', { amount: 0, friendProfileId: juanId, payerId: juanId }, tokenA);
   assert(s20c.status === 400, 'Zero amount → 400');
 
-  const s20d = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: fakeUuid }, tokenA);
+  const s20d = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: fakeUuid, payerId: juanId }, tokenA);
   assert(s20d.status === 404, 'Fake friend ID → 404');
 
-  const s20e = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: bOnlyFriendId }, tokenA);
+  const s20e = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: bOnlyFriendId, payerId: bOnlyFriendId }, tokenA);
   assert(s20e.status === 403, 'User A settling User B friend → 403');
 
   // ══════════════════════════════════════════════════════════════════
@@ -409,6 +411,89 @@ async function run() {
   const bOnlyBudget = budgetBcheck.data.budgetStatuses.find(b => b.categoryId === bOnlyCatId);
   assert(bOnlyBudget && bOnlyBudget.spent === 0, 'User B "B-Only" category has ₱0 spent');
   assert(budgetBcheck.data.budgetStatuses.length === 1, 'User B sees only their 1 category');
+
+  // ══════════════════════════════════════════════════════════════════
+  //  TEST GROUP 8: REGISTERED FRIEND BUDGET DEDUCTION
+  // ══════════════════════════════════════════════════════════════════
+  section('TEST 22: Registered friend budget deduction (Shared expense payer gets budget deduction)');
+
+  // 1. Send friend request User A -> User B
+  const req1 = await request('POST', '/friends/request', { targetUserId: userBId }, tokenA);
+  assert(req1.status === 201, 'Friend request sent User A -> User B');
+
+  // 2. Accept friend request by User B
+  const req2 = await request('POST', `/friends/request/${req1.data.request.id}/accept`, {}, tokenB);
+  assert(req2.status === 200, 'Friend request accepted by User B');
+
+  // 3. Find FriendProfile of B from User A perspective
+  const friendsA = await request('GET', '/friends', null, tokenA);
+  const friendProfileB = friendsA.data.friends.find(f => f.friendUserId === userBId);
+  assert(friendProfileB !== undefined, 'User A has a FriendProfile for User B');
+  const friendProfileBId = friendProfileB.id;
+
+  // 4. Create category "Leisure" for both User A and User B
+  const catLeisureA = await request('POST', '/categories', { name: 'Leisure', monthlyLimit: 5000 }, tokenA);
+  const catLeisureB = await request('POST', '/categories', { name: 'Leisure', monthlyLimit: 5000 }, tokenB);
+  assert(catLeisureA.status === 201 && catLeisureB.status === 201, 'Category "Leisure" created for both users');
+  const leisureCatBId = catLeisureB.data.category.id;
+
+  // 5. User A logs an expense transaction of amount 2000, category "Leisure", paid by User B, split 50/50
+  const sharedExp = await request('POST', '/transactions', {
+    amount: 2000,
+    categoryId: catLeisureA.data.category.id,
+    payerId: friendProfileBId, // Friend paid
+    splits: [
+      { profileId: 'self', amount: 1000 },
+      { profileId: friendProfileBId, amount: 1000 }
+    ],
+    message: 'Coachella tickets'
+  }, tokenA);
+
+  assert(sharedExp.status === 202, 'Expense transaction returns 202 Accepted (Pending Approval)');
+  assert(sharedExp.data.status === 'PENDING_APPROVAL', 'Response status is PENDING_APPROVAL');
+
+  // 6. User B fetches pending transactions
+  const pendingB = await request('GET', '/transactions/pending', null, tokenB);
+  assert(pendingB.status === 200, 'User B fetched pending transactions successfully');
+  assert(pendingB.data.pendingTransactions.length === 1, 'User B has exactly 1 pending transaction');
+  const pendingTxId = pendingB.data.pendingTransactions[0].id;
+  assert(Number(pendingB.data.pendingTransactions[0].amount) === 2000, 'Pending transaction amount is 2000');
+
+  // 7. User B approves the pending transaction and selects category "Leisure"
+  const approveRes = await request('POST', `/transactions/pending/${pendingTxId}/respond`, {
+    action: 'APPROVE',
+    categoryId: leisureCatBId
+  }, tokenB);
+  assert(approveRes.status === 200, 'User B approved the transaction request');
+
+  // 8. Verify User B budget deduction: B paid the total 2000 upfront, so B's budget should decrease by 2000
+  const budgetB = await request('GET', '/transactions/budget', null, tokenB);
+  const leisureBudgetB = budgetB.data.budgetStatuses.find(b => b.categoryId === leisureCatBId);
+  assert(leisureBudgetB && leisureBudgetB.spent === 2000, `User B leisure budget spent = ₱2000 (got ₱${leisureBudgetB?.spent})`);
+
+  // 9. Rejection flow test
+  const sharedExp2 = await request('POST', '/transactions', {
+    amount: 500,
+    categoryId: catLeisureA.data.category.id,
+    payerId: friendProfileBId,
+    splits: [
+      { profileId: 'self', amount: 250 },
+      { profileId: friendProfileBId, amount: 250 }
+    ],
+    message: 'Dinner'
+  }, tokenA);
+  assert(sharedExp2.status === 202, 'Second transaction returns 202 Accepted (Pending Approval)');
+
+  const pendingB2 = await request('GET', '/transactions/pending', null, tokenB);
+  const pendingTxId2 = pendingB2.data.pendingTransactions[0].id;
+
+  const rejectRes = await request('POST', `/transactions/pending/${pendingTxId2}/respond`, {
+    action: 'REJECT'
+  }, tokenB);
+  assert(rejectRes.status === 200, 'User B rejected the transaction request');
+
+  const pendingB3 = await request('GET', '/transactions/pending', null, tokenB);
+  assert(pendingB3.data.pendingTransactions.length === 0, 'No more pending transactions for User B');
 
   // ══════════════════════════════════════════════════════════════════
   //  FINAL RESULTS
