@@ -18,7 +18,6 @@ import { gamificationService, getLocalDateParts, getUtcDateOfLocalTime } from '.
  */
 export const createExpenseTransaction = async (req: Request, res: Response) => {
   try {
-    console.log('createExpenseTransaction req.body:', req.body);
     const { amount, categoryId, payerId, splits, message, isPrivate, allowFriendToPrivate } = req.body;
     const userId: string = req.user.id;
 
@@ -54,23 +53,41 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       payerUserId = payerProfile.friendUserId;
     }
 
-    if (payerUserId && payerUserId !== userId) {
+    // Check if the current user is the payer AND splits involve a registered friend.
+    let involvedFriendUserId: string | null = null;
+
+    if (userIsPayer) {
+      for (const split of splits) {
+        if (split.profileId === 'self' || split.profileId === userId) continue;
+        const fp = await prisma.friendProfile.findUnique({
+          where: { id: split.profileId },
+        });
+        if (fp && fp.friendUserId) {
+          involvedFriendUserId = fp.friendUserId;
+          break; // 2-party system: at most one registered friend split
+        }
+      }
+    }
+
+    if ((payerUserId && payerUserId !== userId) || involvedFriendUserId) {
+      const targetApproverUserId = payerUserId || involvedFriendUserId!;
       const pendingTx = await prisma.pendingTransaction.create({
         data: {
           creatorId: userId,
           payerId,
-          payerUserId,
+          payerUserId: targetApproverUserId,
           categoryId,
           amount: new Prisma.Decimal(amount),
           splits: splits as any,
           message: message || null,
           isPrivate: isPrivate || false,
           allowFriendToPrivate: allowFriendToPrivate || true,
+          type: 'EXPENSE',
         },
       });
 
       await createNotification({
-        recipientId: payerUserId,
+        recipientId: targetApproverUserId,
         actorId: userId,
         type: 'TRANSACTION_APPROVAL_REQUEST',
         data: {
@@ -81,7 +98,7 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
 
       return res.status(202).json({
         status: 'PENDING_APPROVAL',
-        message: 'Transaction sent to the payer for approval.',
+        message: 'Transaction sent to the friend for approval.',
         pendingTransaction: pendingTx,
       });
     }
@@ -117,75 +134,15 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       let payerUserId: string | null = null;
 
       if (userIsPayer) {
-        // User paid the full amount: Budget deduction for the FULL amount
-        // (cash left the user's pocket, so the budget drops by the total)
-        ledgerEntries.push({
-          transactionId: transaction.id,
+        const helperResult = await generateSelfPaidExpenseLedgerEntries(
+          tx,
+          transaction.id,
           userId,
-          friendProfileId: null,
-          amountChange: totalDecimal,
-          type: 'BUDGET_DEDUCTION',
-        });
-
-        // Each friend in splits owes the user
-        for (const split of splits) {
-          if (split.profileId === userId || split.profileId === 'self') continue;
-          if (split.amount <= 0) continue;
-
-          const friendShare = new Prisma.Decimal(split.amount);
-
-          // Verify friend profile
-          const friendProfile = await tx.friendProfile.findUnique({
-            where: { id: split.profileId },
-          });
-          if (!friendProfile || friendProfile.mainUserId !== userId) {
-            throw { statusCode: 404, message: `Friend profile ${split.profileId} not found or forbidden` };
-          }
-
-          // User gets RECEIVABLE
-          ledgerEntries.push({
-            transactionId: transaction.id,
-            userId,
-            friendProfileId: split.profileId,
-            amountChange: friendShare,
-            type: 'RECEIVABLE',
-          });
-
-          // Mirror: friend owes user
-          if (friendProfile.friendUserId) {
-            if (!notifiedFriends.includes(friendProfile.friendUserId)) {
-               notifiedFriends.push(friendProfile.friendUserId);
-            }
-            let inverseFriendProfile = await tx.friendProfile.findFirst({
-              where: {
-                mainUserId: friendProfile.friendUserId,
-                friendUserId: userId,
-              },
-            });
-
-            if (!inverseFriendProfile) {
-               const currentUser = await tx.user.findUnique({ where: { id: userId } });
-               inverseFriendProfile = await tx.friendProfile.create({
-                 data: {
-                   mainUserId: friendProfile.friendUserId,
-                   friendUserId: userId,
-                   name: currentUser?.displayName || currentUser?.username || 'Friend',
-                   isGhost: false,
-                 }
-               });
-            }
-
-            if (inverseFriendProfile) {
-              ledgerEntries.push({
-                transactionId: transaction.id,
-                userId: friendProfile.friendUserId,
-                friendProfileId: inverseFriendProfile.id,
-                amountChange: friendShare,
-                type: 'PAYABLE',
-              });
-            }
-          }
-        }
+          totalDecimal,
+          splits
+        );
+        ledgerEntries.push(...helperResult.ledgerEntries);
+        notifiedFriends.push(...helperResult.notifiedFriends);
       } else {
         // A friend paid. We record debts to the payer friend for everyone in the split.
         const payerProfile = await tx.friendProfile.findUnique({
@@ -489,19 +446,53 @@ export const createSettlement = async (req: Request, res: Response) => {
       }
     }
 
-    const result = await prisma.$transaction(async (tx) => {
-      // Validate friend profile ownership
-      const friendProfile = await tx.friendProfile.findUnique({
-        where: { id: friendProfileId },
+    // Validate friend profile ownership
+    const friendProfile = await prisma.friendProfile.findUnique({
+      where: { id: friendProfileId },
+    });
+
+    if (!friendProfile) {
+      return res.status(404).json({ error: 'Friend profile not found' });
+    }
+    if (friendProfile.mainUserId !== userId) {
+      return res.status(403).json({ error: 'Forbidden: You do not own this friend profile' });
+    }
+
+    if (friendProfile.friendUserId) {
+      const pendingTx = await prisma.pendingTransaction.create({
+        data: {
+          creatorId: userId,
+          payerId,
+          payerUserId: friendProfile.friendUserId,
+          categoryId: categoryId || null,
+          amount: new Prisma.Decimal(amount),
+          splits: [] as any,
+          message: message || null,
+          isPrivate: isPrivate || false,
+          allowFriendToPrivate: allowFriendToPrivate || true,
+          type: 'SETTLEMENT',
+          friendProfileId,
+        },
       });
 
-      if (!friendProfile) {
-        throw { statusCode: 404, message: 'Friend profile not found' };
-      }
-      if (friendProfile.mainUserId !== userId) {
-        throw { statusCode: 403, message: 'Forbidden: You do not own this friend profile' };
-      }
+      await createNotification({
+        recipientId: friendProfile.friendUserId,
+        actorId: userId,
+        type: 'TRANSACTION_APPROVAL_REQUEST',
+        data: {
+          pendingTransactionId: pendingTx.id,
+          amount,
+        },
+      });
 
+      return res.status(202).json({
+        status: 'PENDING_APPROVAL',
+        message: 'Settlement sent to the friend for approval.',
+        pendingTransaction: pendingTx,
+      });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
       const settlementAmount = new Prisma.Decimal(amount);
 
       // Based on who paid, reduce the appropriate debt.
@@ -1008,6 +999,93 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
   }
 }
 
+interface ApprovalResult {
+  transaction: any;
+  friendTransaction?: any;
+  ledgerEntries: any[];
+  notifiedFriends: string[];
+}
+
+async function generateSelfPaidExpenseLedgerEntries(
+  tx: any,
+  transactionId: string,
+  creatorId: string,
+  amount: Prisma.Decimal,
+  splits: any[]
+): Promise<{ ledgerEntries: Prisma.LedgerEntryCreateManyInput[]; notifiedFriends: string[] }> {
+  const ledgerEntries: Prisma.LedgerEntryCreateManyInput[] = [];
+  const notifiedFriends: string[] = [];
+
+  // Budget deduction for the creator
+  ledgerEntries.push({
+    transactionId,
+    userId: creatorId,
+    friendProfileId: null,
+    amountChange: amount,
+    type: 'BUDGET_DEDUCTION',
+  });
+
+  for (const split of splits) {
+    if (split.profileId === creatorId || split.profileId === 'self') continue;
+    if (split.amount <= 0) continue;
+
+    const friendShare = new Prisma.Decimal(split.amount);
+
+    const friendProfile = await tx.friendProfile.findUnique({
+      where: { id: split.profileId },
+    });
+    if (!friendProfile || friendProfile.mainUserId !== creatorId) {
+      throw { statusCode: 404, message: `Friend profile ${split.profileId} not found or forbidden` };
+    }
+
+    // Creator gets RECEIVABLE
+    ledgerEntries.push({
+      transactionId,
+      userId: creatorId,
+      friendProfileId: split.profileId,
+      amountChange: friendShare,
+      type: 'RECEIVABLE',
+    });
+
+    // Mirror: friend owes creator
+    if (friendProfile.friendUserId) {
+      if (!notifiedFriends.includes(friendProfile.friendUserId)) {
+        notifiedFriends.push(friendProfile.friendUserId);
+      }
+      let inverseFriendProfile = await tx.friendProfile.findFirst({
+        where: {
+          mainUserId: friendProfile.friendUserId,
+          friendUserId: creatorId,
+        },
+      });
+
+      if (!inverseFriendProfile) {
+        const creatorUser = await tx.user.findUnique({ where: { id: creatorId } });
+        inverseFriendProfile = await tx.friendProfile.create({
+          data: {
+            mainUserId: friendProfile.friendUserId,
+            friendUserId: creatorId,
+            name: creatorUser?.displayName || creatorUser?.username || 'Friend',
+            isGhost: false,
+          },
+        });
+      }
+
+      if (inverseFriendProfile) {
+        ledgerEntries.push({
+          transactionId,
+          userId: friendProfile.friendUserId,
+          friendProfileId: inverseFriendProfile.id,
+          amountChange: friendShare,
+          type: 'PAYABLE',
+        });
+      }
+    }
+  }
+
+  return { ledgerEntries, notifiedFriends };
+}
+
 export const getPendingTransactions = async (req: Request, res: Response) => {
   try {
     const userId: string = req.user.id;
@@ -1081,28 +1159,287 @@ export const respondToPendingTransaction = async (req: Request, res: Response) =
       await createNotification({
         recipientId: pendingTx.creatorId,
         actorId: userId,
-        type: 'BALANCE_CHANGED',
+        type: 'TRANSACTION_REJECTED',
         data: {
-          message: 'rejected your transaction request',
+          pendingTransactionId: pendingTx.id,
+          amount: pendingTx.amount.toNumber(),
+          transactionType: pendingTx.type,
         },
       });
 
       return res.status(200).json({ message: 'Transaction request rejected successfully.' });
     }
 
-    if (!categoryId) {
+    const isPayer = pendingTx.payerId !== 'self';
+    const isExpense = pendingTx.type === 'EXPENSE';
+    const categoryRequired = isExpense && isPayer;
+
+    if (categoryRequired && !categoryId) {
       return res.status(400).json({ error: 'Category ID is required for approval' });
     }
 
-    const friendCategory = await prisma.category.findUnique({
-      where: { id: categoryId },
-    });
+    let friendCategory: any = null;
 
-    if (!friendCategory || friendCategory.userId !== userId) {
-      return res.status(400).json({ error: 'Invalid category selection' });
-    }
+    const result: ApprovalResult = await prisma.$transaction(async (tx) => {
+      // If category is required, fetch and validate inside the transaction
+      if (categoryRequired) {
+        friendCategory = await tx.category.findUnique({
+          where: { id: categoryId },
+        });
 
-    const result = await prisma.$transaction(async (tx) => {
+        if (!friendCategory || friendCategory.userId !== userId) {
+          throw { statusCode: 400, message: 'Invalid category selection' };
+        }
+      }
+
+      // ── TYPE: SETTLEMENT Approval ───────────────────────────────────
+      if (pendingTx.type === 'SETTLEMENT') {
+        const settlementAmount = pendingTx.amount;
+        const ledgerType = pendingTx.payerId === 'self' ? 'PAYABLE' : 'RECEIVABLE';
+        const inverseLedgerType = pendingTx.payerId === 'self' ? 'RECEIVABLE' : 'PAYABLE';
+
+        const friendProfile = await tx.friendProfile.findUnique({
+          where: { id: pendingTx.friendProfileId! },
+        });
+        if (!friendProfile) {
+          throw new Error('Friend profile not found');
+        }
+
+        let inverseFriendProfile = null;
+        if (friendProfile.friendUserId) {
+          inverseFriendProfile = await tx.friendProfile.findFirst({
+            where: {
+              mainUserId: friendProfile.friendUserId,
+              friendUserId: pendingTx.creatorId,
+            },
+          });
+        }
+
+        // Validate creator's balance
+        const currentBalanceAgg = await tx.ledgerEntry.aggregate({
+          where: {
+            userId: pendingTx.creatorId,
+            friendProfileId: pendingTx.friendProfileId!,
+            type: ledgerType,
+          },
+          _sum: { amountChange: true },
+        });
+
+        const currentBalance = currentBalanceAgg._sum.amountChange 
+          ? new Prisma.Decimal(currentBalanceAgg._sum.amountChange.toString()) 
+          : new Prisma.Decimal(0);
+
+        if (currentBalance.lessThan(settlementAmount)) {
+          throw { 
+            statusCode: 400, 
+            message: `Invalid settlement: Creator does not have enough ${ledgerType.toLowerCase()} balance with this friend.` 
+          };
+        }
+
+        // Validate approver's balance if inverse profile exists
+        if (inverseFriendProfile) {
+          const approverBalanceAgg = await tx.ledgerEntry.aggregate({
+            where: {
+              userId: pendingTx.payerUserId,
+              friendProfileId: inverseFriendProfile.id,
+              type: inverseLedgerType,
+            },
+            _sum: { amountChange: true },
+          });
+
+          const approverBalance = approverBalanceAgg._sum.amountChange
+            ? new Prisma.Decimal(approverBalanceAgg._sum.amountChange.toString())
+            : new Prisma.Decimal(0);
+
+          if (approverBalance.lessThan(settlementAmount)) {
+            throw {
+              statusCode: 400,
+              message: `Invalid settlement: Approver does not have enough ${inverseLedgerType.toLowerCase()} balance with this friend.`
+            };
+          }
+        }
+
+        const transaction = await tx.transaction.create({
+          data: {
+            creatorId: pendingTx.creatorId,
+            categoryId: pendingTx.categoryId || null,
+            totalAmount: pendingTx.amount,
+            type: 'SETTLEMENT',
+          },
+        });
+
+        const entriesToCreate: Prisma.LedgerEntryCreateManyInput[] = [
+          {
+            transactionId: transaction.id,
+            userId: pendingTx.creatorId,
+            friendProfileId: pendingTx.friendProfileId!,
+            amountChange: settlementAmount.neg(),
+            type: ledgerType,
+          }
+        ];
+
+        if (inverseFriendProfile) {
+          entriesToCreate.push({
+            transactionId: transaction.id,
+            userId: friendProfile.friendUserId!,
+            friendProfileId: inverseFriendProfile.id,
+            amountChange: settlementAmount.neg(),
+            type: inverseLedgerType,
+          });
+        }
+
+        // Creator budget impact
+        if (pendingTx.categoryId) {
+          if (pendingTx.payerId === 'self') {
+            entriesToCreate.push({
+              transactionId: transaction.id,
+              userId: pendingTx.creatorId,
+              friendProfileId: null,
+              amountChange: settlementAmount,
+              type: 'BUDGET_DEDUCTION',
+            });
+          } else {
+            entriesToCreate.push({
+              transactionId: transaction.id,
+              userId: pendingTx.creatorId,
+              friendProfileId: null,
+              amountChange: settlementAmount.neg(),
+              type: 'BUDGET_DEDUCTION',
+            });
+          }
+        }
+
+        // Approver budget impact (if B is payer and selected category)
+        if (pendingTx.payerId !== 'self' && categoryId) {
+          const approverCategory = await tx.category.findUnique({
+            where: { id: categoryId },
+          });
+          if (approverCategory && approverCategory.userId === pendingTx.payerUserId) {
+            const friendSettleTx = await tx.transaction.create({
+              data: {
+                creatorId: pendingTx.payerUserId,
+                categoryId: approverCategory.id,
+                totalAmount: pendingTx.amount,
+                type: 'SETTLEMENT',
+              },
+            });
+
+            entriesToCreate.push({
+              transactionId: friendSettleTx.id,
+              userId: pendingTx.payerUserId,
+              friendProfileId: null,
+              amountChange: settlementAmount,
+              type: 'BUDGET_DEDUCTION',
+            });
+          }
+        }
+
+        // Auto-refund for budget
+        if (friendProfile.friendUserId && inverseFriendProfile) {
+          const receiverId = pendingTx.payerId === 'self'
+            ? friendProfile.friendUserId
+            : null;
+
+          if (receiverId) {
+            const originalEntry = await tx.ledgerEntry.findFirst({
+              where: {
+                userId: receiverId,
+                friendProfileId: inverseFriendProfile.id,
+                type: 'RECEIVABLE',
+                amountChange: { gt: 0 },
+                transaction: {
+                  type: 'EXPENSE',
+                  categoryId: { not: null },
+                },
+              },
+              include: {
+                transaction: { select: { categoryId: true } },
+              },
+              orderBy: { transaction: { createdAt: 'desc' } },
+            });
+
+            if (originalEntry?.transaction.categoryId) {
+              const refundTx = await tx.transaction.create({
+                data: {
+                  creatorId: receiverId,
+                  categoryId: originalEntry.transaction.categoryId,
+                  totalAmount: pendingTx.amount,
+                  type: 'SETTLEMENT',
+                },
+              });
+
+              await tx.ledgerEntry.create({
+                data: {
+                  transactionId: refundTx.id,
+                  userId: receiverId,
+                  friendProfileId: null,
+                  amountChange: settlementAmount.neg(),
+                  type: 'BUDGET_DEDUCTION',
+                },
+              });
+            }
+          }
+        }
+
+        await tx.ledgerEntry.createMany({ data: entriesToCreate });
+
+        await tx.pendingTransaction.update({
+          where: { id },
+          data: { status: 'APPROVED' },
+        });
+
+        const createdEntries = await tx.ledgerEntry.findMany({
+          where: { transactionId: transaction.id },
+        });
+
+        return {
+          transaction,
+          ledgerEntries: createdEntries,
+          notifiedFriends: [],
+        };
+      }
+
+      // ── TYPE: EXPENSE Approval ──────────────────────────────────────
+      // Case 1: Approver is NOT the payer (A paid, B splits)
+      if (pendingTx.payerId === 'self') {
+        const transaction = await tx.transaction.create({
+          data: {
+            creatorId: pendingTx.creatorId,
+            categoryId: pendingTx.categoryId,
+            totalAmount: pendingTx.amount,
+            type: 'EXPENSE',
+          },
+        });
+
+        const helperResult = await generateSelfPaidExpenseLedgerEntries(
+          tx,
+          transaction.id,
+          pendingTx.creatorId,
+          pendingTx.amount,
+          pendingTx.splits as any[]
+        );
+
+        if (helperResult.ledgerEntries.length > 0) {
+          await tx.ledgerEntry.createMany({ data: helperResult.ledgerEntries });
+        }
+
+        await tx.pendingTransaction.update({
+          where: { id },
+          data: { status: 'APPROVED' },
+        });
+
+        const createdEntries = await tx.ledgerEntry.findMany({
+          where: { transactionId: transaction.id },
+        });
+
+        return {
+          transaction,
+          ledgerEntries: createdEntries,
+          notifiedFriends: helperResult.notifiedFriends,
+        };
+      }
+
+      // Case 2: Approver IS the payer (B paid, A created)
       const transaction = await tx.transaction.create({
         data: {
           creatorId: pendingTx.creatorId,
@@ -1338,25 +1675,41 @@ export const respondToPendingTransaction = async (req: Request, res: Response) =
       },
     });
 
-    const txSplits = (pendingTx.splits as any) || [];
-    const involvedFriendIds = txSplits
-      .filter((s: any) => s.profileId !== 'self' && s.profileId !== pendingTx.creatorId)
-      .map((s: any) => s.profileId);
-    if (!involvedFriendIds.includes(pendingTx.payerId)) {
-      involvedFriendIds.push(pendingTx.payerId);
+    if (pendingTx.type === 'SETTLEMENT') {
+      feedService.generateSettlementPost(
+        result.transaction.id,
+        pendingTx.message || undefined,
+        pendingTx.isPrivate,
+        pendingTx.allowFriendToPrivate
+      );
+    } else {
+      const txSplits = (pendingTx.splits as any) || [];
+      const involvedFriendIds = txSplits
+        .filter((s: any) => s.profileId !== 'self' && s.profileId !== pendingTx.creatorId)
+        .map((s: any) => s.profileId);
+      if (!involvedFriendIds.includes(pendingTx.payerId)) {
+        involvedFriendIds.push(pendingTx.payerId);
+      }
+      const uniqueInvolvedFriendIds: string[] = Array.from(new Set(involvedFriendIds)) as string[];
+
+      feedService.generateExpensePost(
+        result.transaction.id,
+        pendingTx.message || undefined,
+        pendingTx.isPrivate,
+        pendingTx.allowFriendToPrivate,
+        uniqueInvolvedFriendIds
+      );
+
+      if (pendingTx.payerId === 'self') {
+        if (pendingTx.categoryId) {
+          await checkBudgetMilestones(pendingTx.creatorId, pendingTx.categoryId, pendingTx.amount.toNumber());
+        }
+      } else {
+        if (friendCategory) {
+          await checkBudgetMilestones(pendingTx.payerUserId, friendCategory.id, pendingTx.amount.toNumber());
+        }
+      }
     }
-    const uniqueInvolvedFriendIds: string[] = Array.from(new Set(involvedFriendIds)) as string[];
-
-    feedService.generateExpensePost(
-      result.transaction.id,
-      pendingTx.message || undefined,
-      pendingTx.isPrivate,
-      pendingTx.allowFriendToPrivate,
-      uniqueInvolvedFriendIds
-    );
-
-    const friendDeductionAmount = pendingTx.amount.toNumber();
-    await checkBudgetMilestones(pendingTx.payerUserId, friendCategory.id, friendDeductionAmount);
 
     gamificationService.updateStreak(pendingTx.creatorId).catch(console.error);
     gamificationService.evaluateAndAwardBadges(pendingTx.creatorId).catch(console.error);
@@ -1378,11 +1731,14 @@ export const respondToPendingTransaction = async (req: Request, res: Response) =
     return res.status(200).json({
       message: 'Transaction approved and recorded successfully.',
       transaction: result.transaction,
-      friendTransaction: result.friendTransaction,
+      friendTransaction: result.friendTransaction || null,
       ledgerEntries: result.ledgerEntries,
     });
   } catch (error: any) {
     console.error('Respond to pending transaction error:', error);
+    if (error && typeof error === 'object' && 'statusCode' in error && 'message' in error) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
     return res.status(500).json({ error: 'Internal server error' });
   }
 };

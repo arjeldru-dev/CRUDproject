@@ -57,6 +57,10 @@ interface PendingTransaction {
   amount: number;
   message: string | null;
   createdAt: string;
+  type?: 'EXPENSE' | 'SETTLEMENT';
+  payerId?: string;
+  splits?: Array<{ profileId: string; amount: number }>;
+  friendProfileId?: string | null;
 }
 
 const Dashboard: React.FC = () => {
@@ -100,15 +104,15 @@ const Dashboard: React.FC = () => {
   }, []);
 
   // ── Handle Pending Response ───────────────────────────────────────────
-  const handleRespondPending = async (id: string, action: 'APPROVE' | 'REJECT') => {
+  const handleRespondPending = async (id: string, action: 'APPROVE' | 'REJECT', categoryRequired: boolean) => {
     const categoryId = selectedCategories[id];
-    if (action === 'APPROVE' && !categoryId) return;
+    if (action === 'APPROVE' && categoryRequired && !categoryId) return;
 
     setResolvingIds(prev => ({ ...prev, [id]: true }));
     try {
       await api.post(`/transactions/pending/${id}/respond`, {
         action,
-        categoryId: action === 'APPROVE' ? categoryId : undefined,
+        categoryId: (action === 'APPROVE' && categoryRequired) ? categoryId : undefined,
       });
       // Success! Refresh dashboard data
       fetchDashboardData();
@@ -208,6 +212,19 @@ const Dashboard: React.FC = () => {
               const creatorName = tx.creator?.displayName || tx.creator?.username || 'Friend';
               const selectedCat = selectedCategories[tx.id] || '';
               const isResolving = resolvingIds[tx.id] || false;
+              const categoryRequired = (tx.type ?? 'EXPENSE') === 'EXPENSE' && tx.payerId !== 'self';
+
+              // Determine primary display amount and subtext
+              let primaryAmount = Number(tx.amount);
+              let amountSubtext = `on ${new Date(tx.createdAt).toLocaleDateString()}`;
+
+              if ((tx.type ?? 'EXPENSE') === 'EXPENSE' && tx.payerId === 'self' && tx.splits) {
+                const friendSplit = tx.splits.find((s) => s.profileId !== 'self');
+                if (friendSplit) {
+                  primaryAmount = friendSplit.amount;
+                  amountSubtext = `Your share (Total: ${fmt(Number(tx.amount))}) • on ${new Date(tx.createdAt).toLocaleDateString()}`;
+                }
+              }
 
               return (
                 <div
@@ -216,7 +233,19 @@ const Dashboard: React.FC = () => {
                 >
                   <div className="flex-1">
                     <p className="text-[0.95rem] text-foreground font-medium">
-                      <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense where you paid.
+                      {tx.type === 'SETTLEMENT' ? (
+                        <>
+                          <span className="font-semibold text-warning">{creatorName}</span> logged a settlement where {tx.payerId === 'self' ? 'they claim to have paid you' : 'they claim you paid them'}.
+                        </>
+                      ) : tx.payerId !== 'self' ? (
+                        <>
+                          <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense of <span className="font-semibold">{fmt(Number(tx.amount))}</span> where you paid.
+                        </>
+                      ) : (
+                        <>
+                          <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense where they paid.
+                        </>
+                      )}
                     </p>
                     {tx.message && (
                       <p className="text-sm text-muted mt-1 italic">
@@ -225,39 +254,41 @@ const Dashboard: React.FC = () => {
                     )}
                     <div className="flex items-baseline gap-2 mt-3">
                       <span className="text-3xl font-display font-bold text-foreground">
-                        {fmt(Number(tx.amount))}
+                        {fmt(primaryAmount)}
                       </span>
                       <span className="text-xs text-muted">
-                        on {new Date(tx.createdAt).toLocaleDateString()}
+                        {amountSubtext}
                       </span>
                     </div>
                   </div>
 
                   <div className="flex flex-col sm:flex-row sm:items-end gap-3 shrink-0">
-                    <div className="flex flex-col gap-1.5 min-w-[220px]">
-                      <label htmlFor={`category-select-${tx.id}`} className="text-xs text-muted font-semibold tracking-wider uppercase">
-                        Select Budget Category
-                      </label>
-                      <select
-                        id={`category-select-${tx.id}`}
-                        value={selectedCat}
-                        onChange={(e) =>
-                          setSelectedCategories((prev) => ({ ...prev, [tx.id]: e.target.value }))
-                        }
-                        className="w-full bg-surface border border-border-subtle text-foreground rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:bg-surface-hover transition-colors"
-                      >
-                        <option value="">-- Choose Category --</option>
-                        {budgetStatuses.map((cat) => (
-                          <option key={cat.categoryId} value={cat.categoryId}>
-                            {cat.categoryName} ({fmt(cat.remaining)} left)
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {categoryRequired && (
+                      <div className="flex flex-col gap-1.5 min-w-[220px]">
+                        <label htmlFor={`category-select-${tx.id}`} className="text-xs text-muted font-semibold tracking-wider uppercase">
+                          Select Budget Category
+                        </label>
+                        <select
+                          id={`category-select-${tx.id}`}
+                          value={selectedCat}
+                          onChange={(e) =>
+                            setSelectedCategories((prev) => ({ ...prev, [tx.id]: e.target.value }))
+                          }
+                          className="w-full bg-surface border border-border-subtle text-foreground rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:bg-surface-hover transition-colors"
+                        >
+                          <option value="">-- Choose Category --</option>
+                          {budgetStatuses.map((cat) => (
+                            <option key={cat.categoryId} value={cat.categoryId}>
+                              {cat.categoryName} ({fmt(cat.remaining)} left)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-2">
                       <Button
-                        onClick={() => handleRespondPending(tx.id, 'REJECT')}
+                        onClick={() => handleRespondPending(tx.id, 'REJECT', categoryRequired)}
                         isLoading={isResolving}
                         variant="outline"
                         size="md"
@@ -266,8 +297,8 @@ const Dashboard: React.FC = () => {
                         Reject
                       </Button>
                       <Button
-                        onClick={() => handleRespondPending(tx.id, 'APPROVE')}
-                        disabled={!selectedCat}
+                        onClick={() => handleRespondPending(tx.id, 'APPROVE', categoryRequired)}
+                        disabled={categoryRequired && !selectedCat}
                         isLoading={isResolving}
                         size="md"
                         variant="primary"

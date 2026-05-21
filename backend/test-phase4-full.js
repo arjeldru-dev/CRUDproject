@@ -496,6 +496,105 @@ async function run() {
   assert(pendingB3.data.pendingTransactions.length === 0, 'No more pending transactions for User B');
 
   // ══════════════════════════════════════════════════════════════════
+  //  TEST GROUP 9: SETTLEMENT & EXPENSE APPROVAL FLOWS
+  // ══════════════════════════════════════════════════════════════════
+  section('TEST 23: Settlement Approval Flow (Juan/Maria/B-friend registered flow)');
+
+  // User A owes User B 1000 from TEST 22 (shared exp of 2000 paid by B, split 50/50)
+  const balA_before = await request('GET', '/transactions/balances', null, tokenA);
+  const bBal_before = balA_before.data.balances.find(b => b.friendProfileId === friendProfileBId);
+  const aNet_before = bBal_before ? (bBal_before.payableBalance - bBal_before.receivableBalance) : 0;
+  assert(aNet_before === 1000, 'User A owes User B 1000 before settlement');
+
+  // User A logs a settlement of 1000 paying User B (reducing A's PAYABLE to B)
+  const settleA = await request('POST', '/transactions/settle', {
+    amount: 1000,
+    friendProfileId: friendProfileBId,
+    payerId: 'self',
+    categoryId: catLeisureA.data.category.id,
+    message: 'Settling Coachella ticket debt'
+  }, tokenA);
+  if (settleA.status !== 202) {
+    console.log('DEBUG settleA response:', JSON.stringify(settleA, null, 2));
+  }
+  assert(settleA.status === 202, 'Settlement returned 202 (Pending Approval)');
+  const pendingSettleId = settleA.data?.pendingTransaction?.id;
+
+  // User B fetches pending transactions
+  const pendingB_settle = await request('GET', '/transactions/pending', null, tokenB);
+  assert(pendingB_settle.status === 200, 'User B fetched pending transactions successfully');
+  assert(pendingB_settle.data.pendingTransactions.length === 1, 'User B has 1 pending settlement');
+  assert(pendingB_settle.data.pendingTransactions[0].id === pendingSettleId, 'Pending transaction matches settlement');
+
+  // User B approves the settlement request
+  const approveSettleRes = await request('POST', `/transactions/pending/${pendingSettleId}/respond`, {
+    action: 'APPROVE'
+  }, tokenB);
+  assert(approveSettleRes.status === 200, 'User B approved the settlement request');
+
+  // Verify balances: A's debt to B is now 0
+  const balA_after = await request('GET', '/transactions/balances', null, tokenA);
+  const bBal_after = balA_after.data.balances.find(b => b.friendProfileId === friendProfileBId);
+  const aNet_after = bBal_after ? (bBal_after.payableBalance - bBal_after.receivableBalance) : 0;
+  assert(aNet_after === 0, 'User A owes User B 0 after settlement approval');
+
+  // Verify budget deduction for User A: A paid 1000, so A's Leisure budget spent = 1000
+  const budgetA_after = await request('GET', '/transactions/budget', null, tokenA);
+  const leisureBudgetA = budgetA_after.data.budgetStatuses.find(b => b.categoryId === catLeisureA.data.category.id);
+  assert(leisureBudgetA && leisureBudgetA.spent === 1000, `User A leisure budget spent = 1000 (got ${leisureBudgetA?.spent})`);
+
+  // Verify budget refund for User B: B paid 2000, received 1000, so B's Leisure budget spent = 1000 (refunded 1000)
+  const budgetB_afterSettle = await request('GET', '/transactions/budget', null, tokenB);
+  const leisureBudgetB_after = budgetB_afterSettle.data.budgetStatuses.find(b => b.categoryId === leisureCatBId);
+  assert(leisureBudgetB_after && leisureBudgetB_after.spent === 1000, `User B leisure budget spent = 1000 after refund (got ${leisureBudgetB_after?.spent})`);
+
+
+  section('TEST 24: Self-Paid Expense Approval Flow (A paid, B splits)');
+
+  // User A logs a shared expense where User A paid and User B splits 50/50
+  const selfPaidExp = await request('POST', '/transactions', {
+    amount: 500,
+    categoryId: catLeisureA.data.category.id,
+    payerId: 'self',
+    splits: [
+      { profileId: 'self', amount: 250 },
+      { profileId: friendProfileBId, amount: 250 }
+    ],
+    message: 'Coffee split'
+  }, tokenA);
+  assert(selfPaidExp.status === 202, 'Self-paid shared expense returned 202 (Pending Approval)');
+  const pendingExpId = selfPaidExp.data.pendingTransaction.id;
+
+  // User B fetches pending transactions
+  const pendingB_exp = await request('GET', '/transactions/pending', null, tokenB);
+  assert(pendingB_exp.status === 200, 'User B fetched pending transactions successfully');
+  assert(pendingB_exp.data.pendingTransactions.length === 1, 'User B has 1 pending expense transaction');
+  assert(pendingB_exp.data.pendingTransactions[0].id === pendingExpId, 'Pending transaction matches expense');
+
+  // User B approves the expense request (no category required as B is not the payer)
+  const approveExpRes = await request('POST', `/transactions/pending/${pendingExpId}/respond`, {
+    action: 'APPROVE'
+  }, tokenB);
+  assert(approveExpRes.status === 200, 'User B approved the expense request');
+
+  // Verify balances: User A now has a receivable of 250 from User B
+  const balA_final = await request('GET', '/transactions/balances', null, tokenA);
+  const bBal_final = balA_final.data.balances.find(b => b.friendProfileId === friendProfileBId);
+  const aNet_final = bBal_final ? (bBal_final.receivableBalance - bBal_final.payableBalance) : 0;
+  assert(aNet_final === 250, `User A receivable from User B = 250 (got ${aNet_final})`);
+
+  // Verify budget deduction for User A: spent 1000 before + 500 from this transaction = 1500
+  const budgetA_final = await request('GET', '/transactions/budget', null, tokenA);
+  const leisureBudgetA_final = budgetA_final.data.budgetStatuses.find(b => b.categoryId === catLeisureA.data.category.id);
+  assert(leisureBudgetA_final && leisureBudgetA_final.spent === 1500, `User A leisure budget spent = 1500 (got ${leisureBudgetA_final?.spent})`);
+
+  // Verify budget deduction for User B: remains 1000 (B owes A, budget is unaffected until B settles)
+  const budgetB_final = await request('GET', '/transactions/budget', null, tokenB);
+  const leisureBudgetB_final = budgetB_final.data.budgetStatuses.find(b => b.categoryId === leisureCatBId);
+  assert(leisureBudgetB_final && leisureBudgetB_final.spent === 1000, `User B leisure budget spent remains 1000 (got ${leisureBudgetB_final?.spent})`);
+
+
+  // ══════════════════════════════════════════════════════════════════
   //  FINAL RESULTS
   // ══════════════════════════════════════════════════════════════════
   console.log(`\n${'═'.repeat(60)}`);

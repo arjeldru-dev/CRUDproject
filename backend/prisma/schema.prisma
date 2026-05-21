@@ -277,6 +277,7 @@ enum NotificationType {
   CHALLENGE_COMPLETED
   TRANSACTION_APPROVAL_REQUEST
   TRANSACTION_APPROVED
+  TRANSACTION_REJECTED
 }
 
 model Notification {
@@ -440,7 +441,7 @@ model ChallengeParticipant {
 model PendingTransaction {
   id                   String   @id @default(uuid()) @db.Uuid
   creatorId            String   @map("creator_id") @db.Uuid
-  payerId              String   @map("payer_id") @db.Uuid
+  payerId              String   @map("payer_id")
   payerUserId          String   @map("payer_user_id") @db.Uuid
   categoryId           String?  @map("category_id") @db.Uuid
   amount               Decimal  @db.Decimal(10, 2)
@@ -451,6 +452,8 @@ model PendingTransaction {
   status               String   @default("PENDING") // PENDING, APPROVED, REJECTED
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
+  type                 String   @default("EXPENSE")
+  friendProfileId      String?  @map("friend_profile_id") @db.Uuid
 
   creator              User     @relation("PendingTransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
 

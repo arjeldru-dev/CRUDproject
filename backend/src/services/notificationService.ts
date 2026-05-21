@@ -144,6 +144,8 @@ function getNotificationText(type: NotificationType, actorName: string, data?: a
       return `${actorName} asked you to approve a transaction of ₱${data?.amount}.`;
     case 'TRANSACTION_APPROVED':
       return `${actorName} approved your transaction of ₱${data?.amount}.`;
+    case 'TRANSACTION_REJECTED':
+      return `${actorName} rejected your transaction of ₱${data?.amount}.`;
     default:
       return `${actorName} triggered a notification.`;
   }
@@ -161,6 +163,7 @@ function getNotificationUrl(type: NotificationType, data?: any): string {
     case 'BALANCE_CHANGED':
     case 'SETTLEMENT_REMINDER':
     case 'TRANSACTION_APPROVED':
+    case 'TRANSACTION_REJECTED':
       return `${baseUrl}/transactions`;
     case 'TRANSACTION_APPROVAL_REQUEST':
       return `${baseUrl}/`;
