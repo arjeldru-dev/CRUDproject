@@ -204,7 +204,48 @@ export const gamificationService = {
       const allBadges = await prisma.badge.findMany();
       const unearnedBadges = allBadges.filter((b) => !earnedBadgeIds.has(b.id));
 
+      if (unearnedBadges.length === 0) {
+        return [];
+      }
+
       const awardedUserBadges: UserBadge[] = [];
+
+      // Pre-fetch all simple counts and lists in a single batch to avoid N+1 queries
+      const [
+        expenseCount,
+        settlementCount,
+        topupCount,
+        friendCount,
+        challengeCreateCount,
+        completedParticipations,
+      ] = await Promise.all([
+        prisma.transaction.count({ where: { creatorId: userId, type: 'EXPENSE' } }),
+        prisma.transaction.count({ where: { creatorId: userId, type: 'SETTLEMENT' } }),
+        prisma.transaction.count({ where: { creatorId: userId, type: 'TOP_UP' } }),
+        prisma.friendship.count({
+          where: {
+            OR: [
+              { userAId: userId },
+              { userBId: userId },
+            ],
+          },
+        }),
+        prisma.challenge.count({ where: { creatorId: userId } }),
+        prisma.challengeParticipant.findMany({
+          where: {
+            userId,
+            completedAt: { not: null },
+            failedAt: null,
+          },
+          include: {
+            challenge: {
+              include: {
+                participants: true,
+              },
+            },
+          },
+        }),
+      ]);
 
       for (const badge of unearnedBadges) {
         let requirementMet = false;
@@ -213,24 +254,15 @@ export const gamificationService = {
           
           switch (req.type) {
             case 'expense_count': {
-              const count = await prisma.transaction.count({
-                where: { creatorId: userId, type: 'EXPENSE' },
-              });
-              requirementMet = count >= req.value;
+              requirementMet = expenseCount >= req.value;
               break;
             }
             case 'settlement_count': {
-              const count = await prisma.transaction.count({
-                where: { creatorId: userId, type: 'SETTLEMENT' },
-              });
-              requirementMet = count >= req.value;
+              requirementMet = settlementCount >= req.value;
               break;
             }
             case 'topup_count': {
-              const count = await prisma.transaction.count({
-                where: { creatorId: userId, type: 'TOP_UP' },
-              });
-              requirementMet = count >= req.value;
+              requirementMet = topupCount >= req.value;
               break;
             }
             case 'streak': {
@@ -240,26 +272,47 @@ export const gamificationService = {
               break;
             }
             case 'friend_count': {
-              const count = await prisma.friendship.count({
-                where: {
-                  OR: [
-                    { userAId: userId },
-                    { userBId: userId },
-                  ],
-                },
-              });
-              requirementMet = count >= req.value;
+              requirementMet = friendCount >= req.value;
               break;
             }
             case 'challenge_complete_count': {
-              const count = await prisma.challengeParticipant.count({
-                where: {
-                  userId,
-                  completedAt: { not: null },
-                  failedAt: null,
-                },
-              });
-              requirementMet = count >= req.value;
+              requirementMet = completedParticipations.length >= req.value;
+              break;
+            }
+            case 'challenge_create_count': {
+              requirementMet = challengeCreateCount >= req.value;
+              break;
+            }
+            case 'challenge_type_complete': {
+              const typeCount = completedParticipations.filter(
+                (p) => p.challenge.type === req.type_value
+              ).length;
+              requirementMet = typeCount >= req.value;
+              break;
+            }
+            case 'challenge_completed_with_failure': {
+              // Fix: Added cp.accepted to ensure only accepted/invited members who failed are counted
+              const withFailureCount = completedParticipations.filter((p) =>
+                p.challenge.participants.some(
+                  (cp) => cp.userId !== userId && cp.accepted && cp.failedAt !== null
+                )
+              ).length;
+              requirementMet = withFailureCount >= req.value;
+              break;
+            }
+            case 'challenge_perfect_group': {
+              let perfectChallengesCount = 0;
+              for (const part of completedParticipations) {
+                const acceptedParticipants = part.challenge.participants.filter((p) => p.accepted);
+                if (acceptedParticipants.length >= 3) {
+                  const anyFailed = acceptedParticipants.some((p) => p.failedAt !== null);
+                  const allCompleted = acceptedParticipants.every((p) => p.completedAt !== null);
+                  if (!anyFailed && allCompleted) {
+                    perfectChallengesCount++;
+                  }
+                }
+              }
+              requirementMet = perfectChallengesCount >= req.value;
               break;
             }
             case 'budget_pct_under': {
@@ -565,6 +618,25 @@ export const gamificationService = {
     });
 
     const allBadges = await prisma.badge.findMany();
+    
+    // Sort allBadges by rarity (COMMON -> UNCOMMON -> RARE -> EPIC -> LEGENDARY),
+    // and pointsAwarded ascending as a tie-breaker.
+    const rarityOrder: Record<BadgeRarity, number> = {
+      COMMON: 1,
+      UNCOMMON: 2,
+      RARE: 3,
+      EPIC: 4,
+      LEGENDARY: 5,
+    };
+    allBadges.sort((a, b) => {
+      const orderA = rarityOrder[a.rarity] || 0;
+      const orderB = rarityOrder[b.rarity] || 0;
+      if (orderA !== orderB) {
+        return orderA - orderB;
+      }
+      return a.pointsAwarded - b.pointsAwarded;
+    });
+
     const allFrames = await prisma.avatarFrame.findMany({
       orderBy: {
         sortOrder: 'asc',

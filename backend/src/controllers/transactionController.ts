@@ -53,8 +53,8 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       payerUserId = payerProfile.friendUserId;
     }
 
-    // Check if the current user is the payer AND splits involve a registered friend.
-    let involvedFriendUserId: string | null = null;
+    // Check if the current user is the payer AND splits involve registered friends.
+    const involvedFriendUserIds: string[] = [];
 
     if (userIsPayer) {
       for (const split of splits) {
@@ -62,44 +62,60 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
         const fp = await prisma.friendProfile.findUnique({
           where: { id: split.profileId },
         });
-        if (fp && fp.friendUserId) {
-          involvedFriendUserId = fp.friendUserId;
-          break; // 2-party system: at most one registered friend split
+        if (fp && fp.friendUserId && !involvedFriendUserIds.includes(fp.friendUserId)) {
+          involvedFriendUserIds.push(fp.friendUserId);
         }
       }
     }
 
-    if ((payerUserId && payerUserId !== userId) || involvedFriendUserId) {
-      const targetApproverUserId = payerUserId || involvedFriendUserId!;
-      const pendingTx = await prisma.pendingTransaction.create({
-        data: {
-          creatorId: userId,
-          payerId,
-          payerUserId: targetApproverUserId,
-          categoryId,
-          amount: new Prisma.Decimal(amount),
-          splits: splits as any,
-          message: message || null,
-          isPrivate: isPrivate || false,
-          allowFriendToPrivate: allowFriendToPrivate || true,
-          type: 'EXPENSE',
-        },
-      });
+    if ((payerUserId && payerUserId !== userId) || involvedFriendUserIds.length > 0) {
+      // Build the list of all friend user IDs that need to approve.
+      // If a non-self payer exists, they must approve. Additionally,
+      // every registered friend in the splits needs to approve.
+      const approverUserIds: string[] = [];
+      if (payerUserId && payerUserId !== userId) {
+        approverUserIds.push(payerUserId);
+      }
+      for (const friendUserId of involvedFriendUserIds) {
+        if (!approverUserIds.includes(friendUserId)) {
+          approverUserIds.push(friendUserId);
+        }
+      }
 
-      await createNotification({
-        recipientId: targetApproverUserId,
-        actorId: userId,
-        type: 'TRANSACTION_APPROVAL_REQUEST',
-        data: {
-          pendingTransactionId: pendingTx.id,
-          amount,
-        },
-      });
+      const pendingTransactions = [];
+      for (const approverUserId of approverUserIds) {
+        const pendingTx = await prisma.pendingTransaction.create({
+          data: {
+            creatorId: userId,
+            payerId,
+            payerUserId: approverUserId,
+            categoryId,
+            amount: new Prisma.Decimal(amount),
+            splits: splits as any,
+            message: message || null,
+            isPrivate: isPrivate || false,
+            allowFriendToPrivate: allowFriendToPrivate ?? true,
+            type: 'EXPENSE',
+          },
+        });
+
+        await createNotification({
+          recipientId: approverUserId,
+          actorId: userId,
+          type: 'TRANSACTION_APPROVAL_REQUEST',
+          data: {
+            pendingTransactionId: pendingTx.id,
+            amount,
+          },
+        });
+
+        pendingTransactions.push(pendingTx);
+      }
 
       return res.status(202).json({
         status: 'PENDING_APPROVAL',
-        message: 'Transaction sent to the friend for approval.',
-        pendingTransaction: pendingTx,
+        message: `Transaction sent to ${approverUserIds.length} friend(s) for approval.`,
+        pendingTransactions,
       });
     }
 
@@ -364,7 +380,11 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
     const involvedFriendIds = splits
       .filter((s: any) => s.profileId !== 'self' && s.profileId !== userId)
       .map((s: any) => s.profileId);
-    if (!result.ledgerEntries.find(le => le.type === 'BUDGET_DEDUCTION' && le.amountChange.toNumber() === amount) && payerId !== 'self' && payerId !== userId && !involvedFriendIds.includes(payerId)) {
+    const isPayerOutsideSplit = payerId !== 'self' && payerId !== userId && !involvedFriendIds.includes(payerId);
+    const hasFullBudgetDeduction = result.ledgerEntries.some(
+      le => le.type === 'BUDGET_DEDUCTION' && le.amountChange.toNumber() === amount
+    );
+    if (!hasFullBudgetDeduction && isPayerOutsideSplit) {
       involvedFriendIds.push(payerId);
     }
     
@@ -372,7 +392,7 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
     const uniqueInvolvedFriendIds = Array.from(new Set(involvedFriendIds));
 
     // Call generateExpensePost with additional friends array
-    feedService.generateExpensePost(result.transaction.id, message, isPrivate, allowFriendToPrivate, uniqueInvolvedFriendIds);
+    await feedService.generateExpensePost(result.transaction.id, message, isPrivate, allowFriendToPrivate, uniqueInvolvedFriendIds);
 
     // Check for budget milestones
     const budgetEntry = result.ledgerEntries.find(le => le.type === 'BUDGET_DEDUCTION');
@@ -431,6 +451,10 @@ export const createSettlement = async (req: Request, res: Response) => {
       });
     }
 
+    if (!categoryId) {
+      return res.status(400).json({ error: 'Budget category is required for settlement' });
+    }
+
     if (typeof amount !== 'number' || amount <= 0) {
       return res.status(400).json({ error: 'Amount must be a positive number' });
     }
@@ -469,7 +493,7 @@ export const createSettlement = async (req: Request, res: Response) => {
           splits: [] as any,
           message: message || null,
           isPrivate: isPrivate || false,
-          allowFriendToPrivate: allowFriendToPrivate || true,
+          allowFriendToPrivate: allowFriendToPrivate ?? true,
           type: 'SETTLEMENT',
           friendProfileId,
         },
@@ -662,7 +686,7 @@ export const createSettlement = async (req: Request, res: Response) => {
     }
 
     // ── Feed Post Generation ──────────────────────────────────────────
-    feedService.generateSettlementPost(result.transaction.id, message, isPrivate, allowFriendToPrivate);
+    await feedService.generateSettlementPost(result.transaction.id, message, isPrivate, allowFriendToPrivate);
 
     // Fire-and-forget gamification evaluation
     gamificationService.updateStreak(userId).catch(console.error);
@@ -1109,7 +1133,12 @@ export const getPendingTransactions = async (req: Request, res: Response) => {
       },
     });
 
-    return res.status(200).json({ pendingTransactions });
+    const pendingWithFlags = pendingTransactions.map(tx => ({
+      ...tx,
+      categoryRequired: tx.payerId !== 'self',
+    }));
+
+    return res.status(200).json({ pendingTransactions: pendingWithFlags });
   } catch (error) {
     console.error('Get pending transactions error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -1171,8 +1200,7 @@ export const respondToPendingTransaction = async (req: Request, res: Response) =
     }
 
     const isPayer = pendingTx.payerId !== 'self';
-    const isExpense = pendingTx.type === 'EXPENSE';
-    const categoryRequired = isExpense && isPayer;
+    const categoryRequired = isPayer;
 
     if (categoryRequired && !categoryId) {
       return res.status(400).json({ error: 'Category ID is required for approval' });
@@ -1676,7 +1704,7 @@ export const respondToPendingTransaction = async (req: Request, res: Response) =
     });
 
     if (pendingTx.type === 'SETTLEMENT') {
-      feedService.generateSettlementPost(
+      await feedService.generateSettlementPost(
         result.transaction.id,
         pendingTx.message || undefined,
         pendingTx.isPrivate,
@@ -1692,7 +1720,7 @@ export const respondToPendingTransaction = async (req: Request, res: Response) =
       }
       const uniqueInvolvedFriendIds: string[] = Array.from(new Set(involvedFriendIds)) as string[];
 
-      feedService.generateExpensePost(
+      await feedService.generateExpensePost(
         result.transaction.id,
         pendingTx.message || undefined,
         pendingTx.isPrivate,

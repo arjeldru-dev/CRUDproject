@@ -357,6 +357,9 @@ export const createChallenge = async (req: Request, res: Response) => {
       });
     }
 
+    // Evaluate challenge creator badges
+    gamificationService.evaluateAndAwardBadges(userId).catch(console.error);
+
     return res.status(201).json({
       challenge: {
         id: challenge.id,

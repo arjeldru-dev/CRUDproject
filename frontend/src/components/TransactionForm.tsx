@@ -182,10 +182,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       return 'Please enter a valid positive amount.';
     }
 
-    if (mode === 'expense' || mode === 'topup') {
-      if (!categoryId) {
-        return 'Please select a budget category.';
-      }
+    if (!categoryId) {
+      return 'Please select a budget category.';
     }
     if (mode === 'expense') {
       if (!isSolo && selectedFriendIds.length === 0) {
@@ -412,7 +410,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                     ? 'Budget Category to Top-Up'
                     : payerId === 'self'
                       ? 'Take from Budget'
-                      : 'Refund to Budget (Optional)'}
+                      : 'Refund to Budget'}
                 </label>
                 {categories.length === 0 ? (
                   <p className="text-xs text-muted italic py-2">
@@ -426,9 +424,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       className="w-full px-4 py-3.5 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border cursor-pointer appearance-none"
                     >
                       <option value="" className="bg-surface text-muted">
-                        {mode === 'settlement' && payerId !== 'self'
-                          ? 'No refund (skip)'
-                          : 'Select category…'}
+                        Select category…
                       </option>
                       {categories.map((c) => (
                         <option

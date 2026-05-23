@@ -438,24 +438,31 @@ model ChallengeParticipant {
   @@map("challenge_participants")
 }
 
-model PendingTransaction {
-  id                   String   @id @default(uuid()) @db.Uuid
-  creatorId            String   @map("creator_id") @db.Uuid
-  payerId              String   @map("payer_id")
-  payerUserId          String   @map("payer_user_id") @db.Uuid
-  categoryId           String?  @map("category_id") @db.Uuid
-  amount               Decimal  @db.Decimal(10, 2)
-  splits               Json
-  message              String?  @db.VarChar(255)
-  isPrivate            Boolean  @default(false) @map("is_private")
-  allowFriendToPrivate Boolean  @default(true) @map("allow_friend_to_private")
-  status               String   @default("PENDING") // PENDING, APPROVED, REJECTED
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
-  type                 String   @default("EXPENSE")
-  friendProfileId      String?  @map("friend_profile_id") @db.Uuid
+enum PendingTransactionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
 
-  creator              User     @relation("PendingTransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+model PendingTransaction {
+  id                   String                   @id @default(uuid()) @db.Uuid
+  creatorId            String                   @map("creator_id") @db.Uuid
+  payerId              String                   @map("payer_id")
+  payerUserId          String                   @map("payer_user_id") @db.Uuid
+  categoryId           String?                  @map("category_id") @db.Uuid
+  amount               Decimal                  @db.Decimal(10, 2)
+  splits               Json
+  message              String?                  @db.VarChar(255)
+  isPrivate            Boolean                  @default(false) @map("is_private")
+  allowFriendToPrivate Boolean                  @default(true) @map("allow_friend_to_private")
+  status               PendingTransactionStatus @default(PENDING)
+  createdAt            DateTime                 @default(now()) @map("created_at")
+  updatedAt            DateTime                 @updatedAt @map("updated_at")
+  type                 TransactionType          @default(EXPENSE)
+  friendProfileId      String?                  @map("friend_profile_id") @db.Uuid
+
+  creator              User                     @relation("PendingTransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
 
   @@map("pending_transactions")
 }
+

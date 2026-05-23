@@ -37,16 +37,18 @@ export const generateSpendingForecast = ({
   } else {
     const dailyAverage = spent / daysElapsed;
     projectedSpend = spent + (dailyAverage * daysRemaining);
+    const pct = monthlyLimit > 0 ? Math.round((spent / monthlyLimit) * 100) : 0;
 
+    // We only flag a category AT_RISK if at least 3 days have elapsed and 30% of the budget is used.
+    // This prevents premature/volatile alerts during the first 1-2 days of a new month,
+    // as early large transactions (e.g. paying rent) would skew forecasting projections.
     if (spent > monthlyLimit && monthlyLimit > 0) {
       status = 'OVER_BUDGET';
-    } else if (projectedSpend > monthlyLimit && monthlyLimit > 0) {
+    } else if (projectedSpend >= monthlyLimit * 0.85 && monthlyLimit > 0 && pct >= 30 && daysElapsed >= 3) {
       status = 'AT_RISK';
     } else {
       status = 'ON_TRACK';
     }
-
-    const pct = monthlyLimit > 0 ? Math.round((spent / monthlyLimit) * 100) : 0;
 
     if (status === 'OVER_BUDGET') {
       const overage = spent - monthlyLimit;

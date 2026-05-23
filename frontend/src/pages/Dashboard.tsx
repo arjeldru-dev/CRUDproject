@@ -10,7 +10,6 @@ import {
   Plus,
   ArrowUpRight,
   ArrowDownRight,
-  Receipt,
   Handshake,
   Sparkles,
   AlertTriangle,
@@ -18,6 +17,9 @@ import {
 import { useGamificationStore } from '../store/gamificationStore';
 import { StreakWidget } from '../components/gamification/StreakWidget';
 import { ActiveChallengeCard } from '../components/gamification/ActiveChallengeCard';
+import { SpendingDonutChart } from '../components/ui/SpendingDonutChart';
+import { NetBalanceGauge } from '../components/ui/NetBalanceGauge';
+import { BudgetForecastBarChart } from '../components/ui/BudgetForecastBarChart';
 
 /** Shape of a balance entry from GET /api/transactions/balances */
 interface Balance {
@@ -61,6 +63,7 @@ interface PendingTransaction {
   payerId?: string;
   splits?: Array<{ profileId: string; amount: number }>;
   friendProfileId?: string | null;
+  categoryRequired?: boolean;
 }
 
 const Dashboard: React.FC = () => {
@@ -75,10 +78,12 @@ const Dashboard: React.FC = () => {
   const [selectedCategories, setSelectedCategories] = useState<Record<string, string>>({});
   const [resolvingIds, setResolvingIds] = useState<Record<string, boolean>>({});
   const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState(false);
 
   // ── Fetch Dashboard Data ──────────────────────────────────────────────
   const fetchDashboardData = useCallback(async () => {
     setDataLoading(true);
+    setDataError(false);
     try {
       const now = new Date();
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -90,14 +95,21 @@ const Dashboard: React.FC = () => {
         api.get('/transactions/balances'),
         api.get(`/transactions/budget?monthStart=${monthStart}&monthEnd=${monthEnd}&now=${clientNow}&daysInMonth=${daysInMonth}`),
         api.get('/transactions/pending'),
-        useGamificationStore.getState().fetchProfile(),
-        useGamificationStore.getState().fetchChallenges('ACTIVE'),
       ]);
       setBalances(balancesRes.data.balances || []);
       setBudgetStatuses(budgetRes.data.budgetStatuses || []);
       setPendingTransactions(pendingRes.data.pendingTransactions || []);
-    } catch {
-      // Silently fail — pages will show empty states
+
+      // Non-blocking gamification updates
+      Promise.allSettled([
+        useGamificationStore.getState().fetchProfile(),
+        useGamificationStore.getState().fetchChallenges('ACTIVE'),
+      ]).catch(err => {
+        console.error('Failed to load gamification data:', err);
+      });
+    } catch (err) {
+      console.error('Failed to load dashboard data:', err);
+      setDataError(true);
     } finally {
       setDataLoading(false);
     }
@@ -158,8 +170,6 @@ const Dashboard: React.FC = () => {
   // ── Derived Data ──────────────────────────────────────────────────────
   const positiveBalances = balances.filter((b) => b.receivableBalance > 0);
   const negativeBalances = balances.filter((b) => b.payableBalance > 0);
-  const totalOwed = positiveBalances.reduce((s, b) => s + b.receivableBalance, 0);
-  const totalOwe = negativeBalances.reduce((s, b) => s + b.payableBalance, 0);
 
   return (
     <div className="animate-fadeInFast">
@@ -212,7 +222,7 @@ const Dashboard: React.FC = () => {
               const creatorName = tx.creator?.displayName || tx.creator?.username || 'Friend';
               const selectedCat = selectedCategories[tx.id] || '';
               const isResolving = resolvingIds[tx.id] || false;
-              const categoryRequired = (tx.type ?? 'EXPENSE') === 'EXPENSE' && tx.payerId !== 'self';
+              const categoryRequired = tx.categoryRequired ?? false;
 
               // Determine primary display amount and subtext
               let primaryAmount = Number(tx.amount);
@@ -315,74 +325,10 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* ── Summary Grid ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-        {/* Total Owed To You */}
-        <div className="md:col-span-2 container-card p-6 md:p-8 hover:border-success/30 transition-colors duration-300">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-11 h-11 rounded-xl bg-success/10 flex items-center justify-center">
-              <ArrowDownRight className="w-6 h-6 text-success" />
-            </div>
-            <p className="text-base font-medium text-muted">
-              Owed to You
-            </p>
-          </div>
-          <p className="text-fluid-hero text-success font-display font-semibold tracking-tight">
-            {dataLoading ? (
-              <span className="inline-block h-14 w-40 bg-surface-hover rounded-lg animate-pulse" />
-            ) : (
-              `+${fmt(totalOwed)}`
-            )}
-          </p>
-          <p className="text-sm font-medium text-muted mt-3">
-            From {positiveBalances.length} friend{positiveBalances.length !== 1 ? 's' : ''}
-          </p>
-        </div>
-
-        {/* Right Column — You Owe + Active Budgets */}
-        <div className="flex flex-col gap-4">
-          <div className="container-card p-6 hover:border-error/30 transition-colors duration-300 flex-1">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-11 h-11 rounded-xl bg-error/10 flex items-center justify-center">
-                <ArrowUpRight className="w-6 h-6 text-error" />
-              </div>
-              <p className="text-base font-medium text-muted">
-                You Owe
-              </p>
-            </div>
-            <p className="text-fluid-h2 text-error font-display font-semibold tracking-tight">
-              {dataLoading ? (
-                <span className="inline-block h-8 w-28 bg-surface-hover rounded-lg animate-pulse" />
-              ) : (
-                `-${fmt(totalOwe)}`
-              )}
-            </p>
-            <p className="text-sm font-medium text-muted mt-2">
-              To {negativeBalances.length} friend{negativeBalances.length !== 1 ? 's' : ''}
-            </p>
-          </div>
-
-          <div className="container-card p-6 hover:border-primary/30 transition-colors duration-300 flex-1">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center">
-                <Receipt className="w-6 h-6 text-primary" />
-              </div>
-              <p className="text-base font-medium text-muted">
-                Active Budgets
-              </p>
-            </div>
-            <p className="text-fluid-h2 text-foreground font-display font-semibold tracking-tight">
-              {dataLoading ? (
-                <span className="inline-block h-8 w-12 bg-surface-hover rounded-lg animate-pulse" />
-              ) : (
-                budgetStatuses.length
-              )}
-            </p>
-            <p className="text-sm font-medium text-muted mt-2">
-              {budgetStatuses.filter((b) => b.remaining > 0).length} within limit
-            </p>
-          </div>
-        </div>
+      {/* ── Summary Visualization Grid ──────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+        <SpendingDonutChart budgetStatuses={budgetStatuses} loading={dataLoading} error={dataError} />
+        <NetBalanceGauge balances={balances} loading={dataLoading} />
       </div>
 
       {/* ── AI Spending Forecasting ──────────────────────────────────── */}
@@ -481,57 +427,18 @@ const Dashboard: React.FC = () => {
               Budget Status
             </h2>
             <div className="flex flex-col gap-3">
-            {budgetStatuses.map((bs) => {
-              const pct =
-                bs.monthlyLimit > 0
-                  ? Math.min((bs.spent / bs.monthlyLimit) * 100, 100)
-                  : 0;
-              const isOverBudget = bs.remaining <= 0;
-
-              return (
-                <div
+              {budgetStatuses.map((bs) => (
+                <BudgetForecastBarChart
                   key={bs.categoryId}
-                  className="container-card p-4 hover:border-border transition-colors duration-200"
-                >
-                  <div className="flex items-end justify-between mb-3">
-                    <p className="text-sm font-semibold text-foreground">
-                      {bs.categoryName}
-                    </p>
-                    <p
-                      className={`text-xs font-semibold ${
-                        isOverBudget ? 'text-error' : 'text-success'
-                      }`}
-                    >
-                      {bs.remaining >= 0 ? '+' : ''}{fmt(bs.remaining)} left
-                    </p>
-                  </div>
-
-                  {/* Progress Bar */}
-                  <div className="w-full h-2 bg-surface-hover rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full transition-all duration-500 ${
-                        isOverBudget
-                          ? 'bg-error'
-                          : pct > 75
-                            ? 'bg-secondary'
-                            : 'bg-primary'
-                      }`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between mt-3">
-                    <p className="text-xs text-muted">
-                      Spent: {fmt(bs.spent)}
-                    </p>
-                    <p className="text-xs text-muted">
-                      Limit: {fmt(bs.monthlyLimit)}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  categoryName={bs.categoryName}
+                  monthlyLimit={bs.monthlyLimit}
+                  spent={bs.spent}
+                  remaining={bs.remaining}
+                  projectedSpend={bs.projectedSpend}
+                  status={bs.status}
+                />
+              ))}
+            </div>
         </div>
         )}
 

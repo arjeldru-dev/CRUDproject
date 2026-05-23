@@ -1,7 +1,7 @@
 import React from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
-import { UserPlus, CheckCircle, Receipt, Wallet, Heart, MessageSquare, Bell, XCircle } from 'lucide-react';
+import { UserPlus, CheckCircle, Receipt, Wallet, Heart, MessageSquare, Bell, XCircle, Award, Flame, Trophy } from 'lucide-react';
 import Avatar from '../ui/Avatar';
 import type { AppNotification } from '../../store/notificationStore';
 import { useNotificationStore } from '../../store/notificationStore';
@@ -23,6 +23,10 @@ const getIcon = (type: string) => {
     case 'TRANSACTION_APPROVAL_REQUEST': return <Receipt className="w-4 h-4 text-warning" />;
     case 'TRANSACTION_APPROVED': return <CheckCircle className="w-4 h-4 text-success" />;
     case 'TRANSACTION_REJECTED': return <XCircle className="w-4 h-4 text-error" />;
+    case 'BADGE_UNLOCKED': return <Award className="w-4 h-4 text-amber-500" />;
+    case 'STREAK_MILESTONE': return <Flame className="w-4 h-4 text-orange-500" />;
+    case 'CHALLENGE_COMPLETED': return <Trophy className="w-4 h-4 text-success" />;
+    case 'CHALLENGE_INVITE': return <Trophy className="w-4 h-4 text-primary" />;
     default: return <Bell className="w-4 h-4 text-muted" />;
   }
 };
@@ -49,6 +53,10 @@ const getNotificationText = (notification: AppNotification) => {
     case 'TRANSACTION_APPROVAL_REQUEST': return `${actorName} asked you to approve a transaction of ₱${parsedData?.amount || ''}.`;
     case 'TRANSACTION_APPROVED': return `${actorName} approved your transaction of ₱${parsedData?.amount || ''}.`;
     case 'TRANSACTION_REJECTED': return `${actorName} rejected your transaction of ₱${parsedData?.amount || ''}.`;
+    case 'BADGE_UNLOCKED': return `🏅 You unlocked the "${parsedData?.badgeName}" badge!`;
+    case 'STREAK_MILESTONE': return `🔥 Amazing! You hit a ${parsedData?.streakDays}-day streak!`;
+    case 'CHALLENGE_COMPLETED': return `🏆 You completed the "${parsedData?.challengeName}" challenge!`;
+    case 'CHALLENGE_INVITE': return `${actorName} invited you to the "${parsedData?.challengeName}" challenge.`;
     default: return `${actorName} triggered a notification.`;
   }
 };
@@ -65,6 +73,10 @@ const getNotificationUrl = (notification: AppNotification) => {
     case 'TRANSACTION_APPROVAL_REQUEST': return '/';
     case 'FEED_REACTION':
     case 'FEED_COMMENT': return '/feed';
+    case 'BADGE_UNLOCKED': return '/challenges?tab=badges';
+    case 'STREAK_MILESTONE': return '/challenges?tab=badges';
+    case 'CHALLENGE_COMPLETED':
+    case 'CHALLENGE_INVITE': return '/challenges?tab=active';
     default: return null;
   }
 };

@@ -137,6 +137,8 @@ async function run() {
   const settleRes = await request('POST', '/transactions/settle', {
     amount: 300,
     friendProfileId: friendId,
+    payerId: friendId,
+    categoryId: categoryId,
   }, token);
   assert(settleRes.status === 201, `Settlement created: ${settleRes.status}`);
   assert(settleRes.data.transaction?.type === 'SETTLEMENT', `Type is SETTLEMENT`);

@@ -103,6 +103,9 @@ interface GamificationState {
   leaderboard: LeaderboardEntry[];
   challenges: ChallengeWithDetails[];
   isLoading: boolean;
+  isProfileLoading: boolean;
+  isLeaderboardLoading: boolean;
+  isChallengesLoading: boolean;
   error: string | null;
 
   fetchProfile: () => Promise<void>;
@@ -122,10 +125,13 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
   leaderboard: [],
   challenges: [],
   isLoading: false,
+  isProfileLoading: false,
+  isLeaderboardLoading: false,
+  isChallengesLoading: false,
   error: null,
 
   fetchProfile: async () => {
-    set({ isLoading: true, error: null });
+    set({ isProfileLoading: true, isLoading: true, error: null });
     try {
       const response = await api.get('/gamification/profile');
       set({
@@ -133,46 +139,55 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
         badges: response.data.badges,
         allBadges: response.data.allBadges,
         availableFrames: response.data.availableFrames,
-        isLoading: false,
       });
     } catch (err: any) {
       set({
         error: err.response?.data?.error || 'Failed to fetch gamification profile',
-        isLoading: false,
       });
+    } finally {
+      set((state) => ({
+        isProfileLoading: false,
+        isLoading: state.isLeaderboardLoading || state.isChallengesLoading,
+      }));
     }
   },
 
   fetchLeaderboard: async () => {
-    set({ isLoading: true, error: null });
+    set({ isLeaderboardLoading: true, isLoading: true, error: null });
     try {
       const response = await api.get('/gamification/leaderboard');
       set({
         leaderboard: response.data.leaderboard,
-        isLoading: false,
       });
     } catch (err: any) {
       set({
         error: err.response?.data?.error || 'Failed to fetch leaderboard',
-        isLoading: false,
       });
+    } finally {
+      set((state) => ({
+        isLeaderboardLoading: false,
+        isLoading: state.isProfileLoading || state.isChallengesLoading,
+      }));
     }
   },
 
   fetchChallenges: async (status?: string) => {
-    set({ isLoading: true, error: null });
+    set({ isChallengesLoading: true, isLoading: true, error: null });
     try {
       const statusParam = status ? `?status=${status}` : '';
       const response = await api.get(`/gamification/challenges${statusParam}`);
       set({
         challenges: response.data.challenges,
-        isLoading: false,
       });
     } catch (err: any) {
       set({
         error: err.response?.data?.error || 'Failed to fetch challenges',
-        isLoading: false,
       });
+    } finally {
+      set((state) => ({
+        isChallengesLoading: false,
+        isLoading: state.isProfileLoading || state.isLeaderboardLoading,
+      }));
     }
   },
 

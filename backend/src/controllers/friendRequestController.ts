@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { Prisma } from '@prisma/client';
 import { createNotification } from '../services/notificationService';
+import { gamificationService } from '../services/gamificationService';
 
 // ══════════════════════════════════════════════════════════════════════
 // GET /api/friends/search?q=
@@ -217,6 +218,10 @@ export const sendFriendRequest = async (req: Request, res: Response) => {
 
       const [updatedRequest, friendship] = await prisma.$transaction(txOperations);
 
+      // Evaluate badges for both users
+      gamificationService.evaluateAndAwardBadges(senderId).catch(console.error);
+      gamificationService.evaluateAndAwardBadges(targetUserId).catch(console.error);
+
       // Notify requester that they are now friends
       await createNotification({
         recipientId: targetUserId,
@@ -413,6 +418,10 @@ export const acceptRequest = async (req: Request, res: Response) => {
 
     // Accept + create friendship and profiles in a transaction
     const [updatedRequest, friendship] = await prisma.$transaction(txOperations);
+
+    // Evaluate badges for both users
+    gamificationService.evaluateAndAwardBadges(request.senderId).catch(console.error);
+    gamificationService.evaluateAndAwardBadges(request.receiverId).catch(console.error);
 
     // Notify the requester that their request was accepted
     await createNotification({

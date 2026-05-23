@@ -60,17 +60,18 @@ export const ActiveChallengeCard: React.FC = () => {
 
   const IconComponent = typeIcons[type] || Trophy;
 
-  // Calculate days elapsed and total days
-  const now = new Date();
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  
-  // Calculate difference in days (ceiling)
-  const totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-  const daysElapsed = Math.max(0, Math.ceil((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-  const currentDay = Math.min(daysElapsed, totalDays);
-  
-  const pct = Math.min((currentDay / totalDays) * 100, 100);
+  // Memoize duration and progress math to prevent calculations on every render
+  const { totalDays, currentDay, pct } = React.useMemo(() => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const now = new Date();
+    // Calculate difference in days (ceiling)
+    const total = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    const elapsed = Math.max(0, Math.ceil((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    const current = Math.min(elapsed, total);
+    const percentage = Math.min((current / total) * 100, 100);
+    return { totalDays: total, currentDay: current, pct: percentage };
+  }, [startDate, endDate]);
 
   // States
   const isFailed = myStatus === 'failed';

@@ -127,3 +127,13 @@ export const unsubscribeFromPush = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Failed to remove push subscription' });
   }
 };
+
+export const getVapidPublicKey = async (req: Request, res: Response) => {
+  try {
+    return res.status(200).json({ publicKey: process.env.VAPID_PUBLIC_KEY || null });
+  } catch (error) {
+    console.error('Failed to get VAPID public key:', error);
+    return res.status(500).json({ error: 'Failed to retrieve VAPID public key' });
+  }
+};
+

@@ -342,11 +342,11 @@ async function run() {
 
   // Juan net was ₱900. Settle ₱400. Payer is Juan (juanId) who is paying A back.
   const settle1 = await request('POST', '/transactions/settle', {
-    amount: 400, friendProfileId: juanId, payerId: juanId
+    amount: 400, friendProfileId: juanId, payerId: juanId, categoryId: foodId
   }, tokenA);
   assert(settle1.status === 201, 'Settlement created: 201');
   assert(settle1.data.transaction.type === 'SETTLEMENT', 'Type = SETTLEMENT');
-  assert(settle1.data.transaction.categoryId === null, 'No category on settlement');
+  assert(settle1.data.transaction.categoryId === foodId, 'Settlement has budget category assigned');
 
   // Check balance: 900 - 400 = 500
   const bal2 = await request('GET', '/transactions/balances', null, tokenA);
@@ -358,7 +358,7 @@ async function run() {
 
   // Settle remaining ₱500 exactly. Payer is Juan.
   const settle2 = await request('POST', '/transactions/settle', {
-    amount: 500, friendProfileId: juanId, payerId: juanId
+    amount: 500, friendProfileId: juanId, payerId: juanId, categoryId: foodId
   }, tokenA);
   assert(settle2.status === 201, 'Full settlement created: 201');
 
@@ -371,7 +371,7 @@ async function run() {
 
   // Juan now owes ₱0. Settling ₱200 more. Payer is Juan.
   const settle3 = await request('POST', '/transactions/settle', {
-    amount: 200, friendProfileId: juanId, payerId: juanId
+    amount: 200, friendProfileId: juanId, payerId: juanId, categoryId: foodId
   }, tokenA);
   assert(settle3.status === 201, 'Overpayment settlement created: 201');
 
@@ -387,16 +387,16 @@ async function run() {
   const s20a = await request('POST', '/transactions/settle', {}, tokenA);
   assert(s20a.status === 400, 'Empty body → 400');
 
-  const s20b = await request('POST', '/transactions/settle', { amount: -100, friendProfileId: juanId, payerId: juanId }, tokenA);
+  const s20b = await request('POST', '/transactions/settle', { amount: -100, friendProfileId: juanId, payerId: juanId, categoryId: foodId }, tokenA);
   assert(s20b.status === 400, 'Negative amount → 400');
 
-  const s20c = await request('POST', '/transactions/settle', { amount: 0, friendProfileId: juanId, payerId: juanId }, tokenA);
+  const s20c = await request('POST', '/transactions/settle', { amount: 0, friendProfileId: juanId, payerId: juanId, categoryId: foodId }, tokenA);
   assert(s20c.status === 400, 'Zero amount → 400');
 
-  const s20d = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: fakeUuid, payerId: juanId }, tokenA);
+  const s20d = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: fakeUuid, payerId: juanId, categoryId: foodId }, tokenA);
   assert(s20d.status === 404, 'Fake friend ID → 404');
 
-  const s20e = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: bOnlyFriendId, payerId: bOnlyFriendId }, tokenA);
+  const s20e = await request('POST', '/transactions/settle', { amount: 100, friendProfileId: bOnlyFriendId, payerId: bOnlyFriendId, categoryId: foodId }, tokenA);
   assert(s20e.status === 403, 'User A settling User B friend → 403');
 
   // ══════════════════════════════════════════════════════════════════
@@ -563,7 +563,7 @@ async function run() {
     message: 'Coffee split'
   }, tokenA);
   assert(selfPaidExp.status === 202, 'Self-paid shared expense returned 202 (Pending Approval)');
-  const pendingExpId = selfPaidExp.data.pendingTransaction.id;
+  const pendingExpId = selfPaidExp.data.pendingTransactions[0].id;
 
   // User B fetches pending transactions
   const pendingB_exp = await request('GET', '/transactions/pending', null, tokenB);

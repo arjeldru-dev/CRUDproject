@@ -107,10 +107,14 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
       // 2. Wait for it to be ready
       await navigator.serviceWorker.ready;
 
-      // 3. Get public VAPID key from backend (or use from env)
-      // For simplicity, we use the env variable if available, but usually we fetch it from an endpoint.
-      // Since we generated it earlier, we can assume it's available.
-      const publicVapidKey = 'BLq3E66_Xde2nkNGfWAQ9mT-tDliaCq2KfKl33ZRWPdKRJxa9gdvQBMTkx7rUly8GFIy2yj9xcepLnTdxQAs3j4';
+      // 3. Get public VAPID key from backend
+      const response = await api.get('/notifications/vapid-key');
+      const publicVapidKey = response.data.publicKey;
+
+      if (!publicVapidKey) {
+        console.warn('VAPID public key is not configured on the backend. Skipping push subscription.');
+        return;
+      }
 
       // 4. Subscribe user
       const subscription = await registration.pushManager.subscribe({
