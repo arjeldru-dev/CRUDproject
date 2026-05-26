@@ -6,7 +6,9 @@ export const getFeed = async (req: Request, res: Response) => {
   try {
     const userId: string = req.user.id;
     const cursor = req.query.cursor as string | undefined;
-    const limit = parseInt(req.query.limit as string) || 20;
+    let limit = parseInt(req.query.limit as string) || 20;
+    if (limit < 1) limit = 20;
+    if (limit > 50) limit = 50;
 
     // 1. Get list of accepted friend IDs
     const friendships = await prisma.friendship.findMany({
@@ -30,86 +32,119 @@ export const getFeed = async (req: Request, res: Response) => {
 
     const feedUserIds = [...validFriendIds, userId];
 
-    // 3. Query feed posts
-    const posts = await prisma.feedPost.findMany({
-      where: {
-        userId: { in: feedUserIds },
-      },
-      take: limit + 1, // +1 to check if there is a next page
-      cursor: cursor ? { id: cursor } : undefined,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        user: {
-          select: {
-            username: true,
-            displayName: true,
-            avatarUrl: true,
+    // 3. Query feed posts in batches to implement application-level filtering with correct cursor pagination
+    const collectedPosts: any[] = [];
+    let nextCursor: string | null = null;
+    let currentCursor = cursor;
+    let hasMore = true;
+    const batchSize = Math.max(limit * 2, 50);
+
+    while (collectedPosts.length < limit && hasMore) {
+      const batch = await prisma.feedPost.findMany({
+        where: {
+          userId: { in: feedUserIds },
+        },
+        take: batchSize + 1,
+        cursor: currentCursor ? { id: currentCursor } : undefined,
+        skip: currentCursor ? 1 : undefined,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: {
+              username: true,
+              displayName: true,
+              avatarUrl: true,
+            },
+          },
+          reactions: true,
+          _count: {
+            select: { comments: true },
           },
         },
-        reactions: true, // we need to aggregate reactions
-        _count: {
-          select: { comments: true },
-        },
-      },
-    });
+      });
 
-    let nextCursor: string | null = null;
-    if (posts.length > limit) {
-      const nextItem = posts.pop();
-      nextCursor = nextItem?.id || null;
-    }
-
-    // 4. Format posts
-    const formattedPosts = [];
-    for (const post of posts) {
-      // Parse content
-      const content = JSON.parse(post.content);
-
-      // Filter out private posts if it's not the user's own post AND it's not the friend involved
-      if (content.isPrivate && post.userId !== userId && content.friendUserId !== userId) {
-        continue;
+      if (batch.length === 0) {
+        break;
       }
 
-      // Group and count reactions
-      const reactionCounts: Record<string, { count: number, userReacted: boolean }> = {};
-      post.reactions.forEach(r => {
-        if (!reactionCounts[r.emoji]) {
-          reactionCounts[r.emoji] = { count: 0, userReacted: false };
-        }
-        reactionCounts[r.emoji].count++;
-        if (r.userId === userId) {
-          reactionCounts[r.emoji].userReacted = true;
-        }
-      });
+      const batchHasMore = batch.length > batchSize;
+      const itemsToProcess = batchHasMore ? batch.slice(0, batchSize) : batch;
 
-      const formattedReactions = Object.entries(reactionCounts).map(([emoji, data]) => ({
-        emoji,
-        count: data.count,
-        userReacted: data.userReacted,
-      }));
+      for (const post of itemsToProcess) {
+        let content: any;
+        try {
+          content = JSON.parse(post.content);
+        } catch (e) {
+          console.error(`Malformed content in feed post ${post.id}`, e);
+          continue; // Skip malformed posts
+        }
 
-      formattedPosts.push({
-        id: post.id,
-        userId: post.userId,
-        user: post.user,
-        type: post.type,
-        content,
-        isPublic: post.isPublic,
-        createdAt: post.createdAt,
-        reactions: formattedReactions,
-        commentCount: post._count.comments,
-      });
+        // Filter out private posts if it's not the user's own post AND it's not the friend involved
+        const isAuthor = post.userId === userId;
+        const isFriendInvolved = content.friendUserId === userId || 
+          (Array.isArray(content.involvedFriendUserIds) && content.involvedFriendUserIds.includes(userId));
+
+        if (content.isPrivate && !isAuthor && !isFriendInvolved) {
+          continue;
+        }
+
+        // Group and count reactions
+        const reactionCounts: Record<string, { count: number, userReacted: boolean }> = {};
+        post.reactions.forEach(r => {
+          if (!reactionCounts[r.emoji]) {
+            reactionCounts[r.emoji] = { count: 0, userReacted: false };
+          }
+          reactionCounts[r.emoji].count++;
+          if (r.userId === userId) {
+            reactionCounts[r.emoji].userReacted = true;
+          }
+        });
+
+        const formattedReactions = Object.entries(reactionCounts).map(([emoji, data]) => ({
+          emoji,
+          count: data.count,
+          userReacted: data.userReacted,
+        }));
+
+        const formattedPost = {
+          id: post.id,
+          userId: post.userId,
+          user: post.user,
+          type: post.type,
+          content,
+          isPublic: post.isPublic,
+          createdAt: post.createdAt,
+          reactions: formattedReactions,
+          commentCount: post._count.comments,
+        };
+
+        if (collectedPosts.length < limit) {
+          collectedPosts.push(formattedPost);
+        } else {
+          // This post represents the start of the next page
+          nextCursor = post.id;
+          hasMore = false;
+          break;
+        }
+      }
+
+      if (hasMore) {
+        if (batchHasMore) {
+          currentCursor = batch[batchSize - 1].id;
+        } else {
+          hasMore = false;
+        }
+      }
     }
 
-    // 5. Apply privacy filtering (e.g. hide amounts if debtVisibility is PRIVATE)
-    // To do this efficiently, we can fetch privacy settings for the valid users
+    // 4. Apply privacy filtering (e.g. hide amounts if debtVisibility is PRIVATE)
     const userAndFriendPrivacy = await prisma.privacySettings.findMany({
       where: { userId: { in: feedUserIds } },
     });
     
     const privacyMap = new Map(userAndFriendPrivacy.map(p => [p.userId, p]));
 
-    const privacyFilteredPosts = formattedPosts.map(post => {
+    const privacyFilteredPosts = collectedPosts.map(post => {
       // Don't filter out amounts if it's the user's own post
       if (post.userId === userId) {
         return post;
@@ -126,8 +161,6 @@ export const getFeed = async (req: Request, res: Response) => {
         }
       }
 
-      // Budget milestones are handled during creation, but we could double-check here
-
       return newPost;
     });
 
@@ -141,14 +174,41 @@ export const getFeed = async (req: Request, res: Response) => {
 export const getComments = async (req: Request, res: Response) => {
   try {
     const { postId } = req.params;
+    const userId = req.user.id;
     const cursor = req.query.cursor as string | undefined;
-    const limit = parseInt(req.query.limit as string) || 20;
+    let limit = parseInt(req.query.limit as string) || 20;
+    if (limit < 1) limit = 20;
+    if (limit > 50) limit = 50;
+
+    const post = await prisma.feedPost.findUnique({
+      where: { id: postId },
+      select: { userId: true },
+    });
+
+    if (!post) {
+      return res.status(404).json({ error: 'Post not found' });
+    }
+
+    // Blocked check: if the caller blocks the post author or vice versa
+    const isBlocked = await prisma.blockedUser.findFirst({
+      where: {
+        OR: [
+          { blockerId: userId, blockedId: post.userId },
+          { blockerId: post.userId, blockedId: userId },
+        ],
+      },
+    });
+
+    if (isBlocked) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
 
     const comments = await prisma.comment.findMany({
       where: { postId },
       take: limit + 1,
       cursor: cursor ? { id: cursor } : undefined,
-      orderBy: { createdAt: 'asc' }, // Older comments first (or maybe desc? Spec doesn't specify, let's say asc for normal thread)
+      skip: cursor ? 1 : undefined,
+      orderBy: { createdAt: 'asc' }, // Older comments first
       include: {
         user: {
           select: {
@@ -168,7 +228,7 @@ export const getComments = async (req: Request, res: Response) => {
 
     const formattedComments = comments.map(comment => ({
       ...comment,
-      isOwn: comment.userId === req.user.id,
+      isOwn: comment.userId === userId,
     }));
 
     return res.status(200).json({ comments: formattedComments, nextCursor });
@@ -195,6 +255,20 @@ export const reactToPost = async (req: Request, res: Response) => {
 
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
+    }
+
+    // Blocked check: if the caller blocks the post author or vice versa
+    const isBlocked = await prisma.blockedUser.findFirst({
+      where: {
+        OR: [
+          { blockerId: userId, blockedId: post.userId },
+          { blockerId: post.userId, blockedId: userId },
+        ],
+      },
+    });
+
+    if (isBlocked) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     if (post.userId !== userId) {
@@ -277,6 +351,20 @@ export const addComment = async (req: Request, res: Response) => {
 
     if (!post) {
       return res.status(404).json({ error: 'Post not found' });
+    }
+
+    // Blocked check: if the caller blocks the post author or vice versa
+    const isBlocked = await prisma.blockedUser.findFirst({
+      where: {
+        OR: [
+          { blockerId: userId, blockedId: post.userId },
+          { blockerId: post.userId, blockedId: userId },
+        ],
+      },
+    });
+
+    if (isBlocked) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     if (post.userId !== userId) {
@@ -373,39 +461,6 @@ export const deletePost = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Cannot delete someone else\'s post' });
     }
 
-    const content = JSON.parse(post.content);
-
-    if (content.transactionId) {
-      const transaction = await prisma.transaction.findUnique({
-        where: { id: content.transactionId },
-        include: { ledgerEntries: true }
-      });
-
-      if (transaction) {
-        const friendEntry = transaction.ledgerEntries.find(e => e.friendProfileId !== null && e.userId === userId);
-        
-        if (friendEntry) {
-          const payables = await prisma.ledgerEntry.aggregate({
-            where: { userId, friendProfileId: friendEntry.friendProfileId, type: 'PAYABLE' },
-            _sum: { amountChange: true }
-          });
-          
-          const receivables = await prisma.ledgerEntry.aggregate({
-            where: { userId, friendProfileId: friendEntry.friendProfileId, type: 'RECEIVABLE' },
-            _sum: { amountChange: true }
-          });
-
-          const totalPayable = Number(payables._sum.amountChange || 0);
-          const totalReceivable = Number(receivables._sum.amountChange || 0);
-          const netBalance = Math.round((totalReceivable - totalPayable) * 100) / 100;
-
-          if (netBalance !== 0) {
-            return res.status(403).json({ error: 'Cannot delete post while there is an unsettled balance with this friend.' });
-          }
-        }
-      }
-    }
-
     await prisma.feedPost.delete({
       where: { id: postId },
     });
@@ -430,10 +485,17 @@ export const togglePostPrivacy = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Post not found' });
     }
 
-    const content = JSON.parse(post.content);
+    let content: any;
+    try {
+      content = JSON.parse(post.content);
+    } catch (e) {
+      return res.status(500).json({ error: 'Malformed post content' });
+    }
 
     const isAuthor = post.userId === userId;
-    const isAllowedFriend = content.friendUserId === userId && content.allowFriendToPrivate;
+    const isAllowedFriend = (content.friendUserId === userId || 
+      (Array.isArray(content.involvedFriendUserIds) && content.involvedFriendUserIds.includes(userId))) && 
+      content.allowFriendToPrivate;
 
     if (!isAuthor && !isAllowedFriend) {
       return res.status(403).json({ error: 'Cannot modify someone else\'s post' });
@@ -471,7 +533,13 @@ export const updatePost = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Cannot modify someone else\'s post' });
     }
 
-    const content = JSON.parse(post.content);
+    let content: any;
+    try {
+      content = JSON.parse(post.content);
+    } catch (e) {
+      return res.status(500).json({ error: 'Malformed post content' });
+    }
+    
     content.message = message?.trim() || undefined;
 
     const updatedPost = await prisma.feedPost.update({

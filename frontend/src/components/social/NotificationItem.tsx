@@ -33,11 +33,16 @@ const getIcon = (type: string) => {
 
 const getNotificationText = (notification: AppNotification) => {
   const actorName = notification.actor?.displayName || notification.actor?.username || 'Someone';
-  let parsedData: any = {};
+  let parsedData: {
+    amount?: string | number;
+    badgeName?: string;
+    challengeName?: string;
+    streakDays?: string | number;
+  } = {};
   if (notification.data) {
     try {
-      parsedData = typeof notification.data === 'string' ? JSON.parse(notification.data) : notification.data;
-    } catch (e) {
+      parsedData = typeof notification.data === 'string' ? JSON.parse(notification.data) : (notification.data as typeof parsedData);
+    } catch {
       // Ignore
     }
   }
@@ -70,7 +75,7 @@ const getNotificationUrl = (notification: AppNotification) => {
     case 'SETTLEMENT_REMINDER':
     case 'TRANSACTION_APPROVED':
     case 'TRANSACTION_REJECTED': return '/transactions';
-    case 'TRANSACTION_APPROVAL_REQUEST': return '/';
+    case 'TRANSACTION_APPROVAL_REQUEST': return '/dashboard';
     case 'FEED_REACTION':
     case 'FEED_COMMENT': return '/feed';
     case 'BADGE_UNLOCKED': return '/challenges?tab=badges';

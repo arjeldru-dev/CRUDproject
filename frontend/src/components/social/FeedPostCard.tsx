@@ -19,7 +19,9 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({ post }) => {
   const [editMessage, setEditMessage] = useState('');
   
   const isAuthor = user?.id === post.userId;
-  const isAllowedFriend = user?.id === post.content.friendUserId && post.content.allowFriendToPrivate;
+  const isAllowedFriend = (user?.id === post.content.friendUserId || 
+    (user?.id && Array.isArray(post.content.involvedFriendUserIds) && post.content.involvedFriendUserIds.includes(user.id))) && 
+    post.content.allowFriendToPrivate;
   const canManage = isAuthor || isAllowedFriend;
 
   const getIcon = () => {
@@ -62,7 +64,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = ({ post }) => {
               <span>•</span>
               <div className="flex items-center gap-1">
                 {getIcon()}
-                <span className="capitalize">{post.type.replace('_', ' ').toLowerCase()}</span>
+                <span className="capitalize">{post.type.replace(/_/g, ' ').toLowerCase()}</span>
               </div>
               {post.content.isPrivate && (
                 <>

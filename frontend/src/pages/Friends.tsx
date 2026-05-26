@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import Button from '../components/ui/Button';
@@ -47,6 +48,12 @@ interface GhostProfile {
 
 type TabKey = 'friends' | 'requests' | 'discover' | 'leaderboard';
 
+const VALID_TABS: TabKey[] = ['friends', 'requests', 'discover', 'leaderboard'];
+
+const isValidTab = (tab: string | null): tab is TabKey => {
+  return VALID_TABS.includes(tab as TabKey);
+};
+
 const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'friends', label: 'My Friends', icon: Users },
   { key: 'requests', label: 'Requests', icon: Clock },
@@ -54,10 +61,42 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'leaderboard', label: 'Leaderboard', icon: Trophy },
 ];
 
+const FriendBalance: React.FC<{ netBalance: number }> = ({ netBalance }) => {
+  return (
+    <div className="text-right shrink-0">
+      <p className={`text-sm font-bold ${
+        netBalance > 0 ? 'text-success' : netBalance < 0 ? 'text-error' : 'text-muted'
+      }`}>
+        {netBalance > 0 ? '+' : ''}
+        {netBalance !== 0 ? `₱${Math.abs(netBalance).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—'}
+      </p>
+      <p className="text-[10px] text-muted mt-0.5">
+        {netBalance > 0 ? 'owes you' : netBalance < 0 ? 'you owe' : 'settled'}
+      </p>
+    </div>
+  );
+};
+
 // ── Main Component ────────────────────────────────────────────────────
 const Friends: React.FC = () => {
   const { user } = useAuthStore();
-  const [activeTab, setActiveTab] = useState<TabKey>('friends');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab') as TabKey | null;
+
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    isValidTab(tabParam) ? tabParam : 'friends'
+  );
+
+  useEffect(() => {
+    if (isValidTab(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
+
+  const handleTabChange = (tab: TabKey) => {
+    setActiveTab(tab);
+    setSearchParams({ tab });
+  };
 
   // My Friends
   const [friends, setFriends] = useState<FriendListItem[]>([]);
@@ -83,7 +122,7 @@ const Friends: React.FC = () => {
   const [ghostToLink, setGhostToLink] = useState<GhostProfile | null>(null);
   const [ghostLinkQuery, setGhostLinkQuery] = useState('');
   const [ghostLinkResults, setGhostLinkResults] = useState<UserSearchResult[]>([]);
-  const ghostSearchTimer = useRef<any>(null);
+  const ghostSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Action loading states
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
@@ -93,7 +132,7 @@ const Friends: React.FC = () => {
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteStatus, setInviteStatus] = useState('');
 
-  const searchTimer = useRef<any>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Data Fetching ─────────────────────────────────────────────────
   const fetchFriends = useCallback(async () => {
@@ -313,12 +352,15 @@ const Friends: React.FC = () => {
       <div className="divider mb-6" />
 
       {/* Tab Bar */}
-      <div className="flex gap-1 mb-8 p-1 bg-surface rounded-xl border border-border-subtle">
+      <div className="flex gap-1 mb-8 p-1 bg-surface rounded-xl border border-border-subtle" role="tablist" aria-label="Friends tabs">
         {TABS.map((tab) => (
           <button
             key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
+            onClick={() => handleTabChange(tab.key)}
             id={`tab-${tab.key}`}
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            aria-controls={`panel-${tab.key}`}
             className={`
               flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-lg
               transition-all duration-200 cursor-pointer relative
@@ -355,7 +397,7 @@ const Friends: React.FC = () => {
 
       {/* ═══ MY FRIENDS TAB ═══ */}
       {activeTab === 'friends' && (
-        <div className="animate-fadeInFast">
+        <div className="animate-fadeInFast" role="tabpanel" id="panel-friends" aria-labelledby="tab-friends">
           {friends.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 container-subtle rounded-2xl">
               <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
@@ -365,44 +407,63 @@ const Friends: React.FC = () => {
               <p className="text-sm text-muted mb-6 text-center max-w-sm">
                 Find friends to start splitting expenses together.
               </p>
-              <Button onClick={() => setActiveTab('discover')} size="lg" id="find-friends-cta">
+              <Button onClick={() => handleTabChange('discover')} size="lg" id="find-friends-cta">
                 <Search className="w-4 h-4" /> Find Friends
               </Button>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-slideUpIn">
               {friends.map((friend) => (
-                <div key={friend.friendshipId} className="group container-card container-card-interactive p-5">
-                  <div className="flex items-center gap-4">
-                    <Avatar
-                      src={friend.avatarUrl}
-                      name={friend.displayName || friend.username || 'User'}
-                      size="md"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {friend.displayName || friend.username || 'Unknown'}
-                      </p>
-                      {friend.username && (
-                        <p className="text-xs text-muted truncate">@{friend.username}</p>
-                      )}
+                <div
+                  key={friend.friendshipId}
+                  className={`group container-card ${
+                    friend.username ? 'container-card-interactive cursor-pointer' : 'p-5'
+                  }`}
+                >
+                  {friend.username ? (
+                    <Link to={`/profile/${friend.username}`} className="block p-5">
+                      <div className="flex items-center gap-4">
+                        <Avatar
+                          src={friend.avatarUrl}
+                          name={friend.displayName || friend.username || 'User'}
+                          size="md"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                            {friend.displayName || friend.username || 'Unknown'}
+                          </p>
+                          {friend.username && (
+                            <p className="text-xs text-muted truncate">@{friend.username}</p>
+                          )}
+                        </div>
+                        <FriendBalance netBalance={friend.netBalance} />
+                      </div>
+                    </Link>
+                  ) : (
+                    <div className="flex items-center gap-4">
+                      <Avatar
+                        src={friend.avatarUrl}
+                        name={friend.displayName || 'User'}
+                        size="md"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {friend.displayName || 'Unknown'}
+                        </p>
+                      </div>
+                      <FriendBalance netBalance={friend.netBalance} />
                     </div>
-                    <div className="text-right shrink-0">
-                      <p className={`text-sm font-bold ${
-                        friend.netBalance > 0 ? 'text-success' : friend.netBalance < 0 ? 'text-error' : 'text-muted'
-                      }`}>
-                        {friend.netBalance > 0 ? '+' : ''}
-                        {friend.netBalance !== 0 ? `₱${Math.abs(friend.netBalance).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—'}
-                      </p>
-                      <p className="text-[10px] text-muted mt-0.5">
-                        {friend.netBalance > 0 ? 'owes you' : friend.netBalance < 0 ? 'you owe' : 'settled'}
-                      </p>
-                    </div>
-                  </div>
+                  )}
                   {/* Remove button on hover */}
-                  <div className="mt-3 pt-3 border-t border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className={`border-t border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity ${
+                    friend.username ? 'mx-5 mb-5 pt-3' : 'mt-3 pt-3'
+                  }`}>
                     <button
-                      onClick={() => handleRemoveFriend(friend.friendshipId)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        handleRemoveFriend(friend.friendshipId);
+                      }}
                       disabled={actionLoading[friend.friendshipId]}
                       className="text-xs text-muted hover:text-error font-medium transition-colors cursor-pointer"
                     >
@@ -463,7 +524,7 @@ const Friends: React.FC = () => {
 
       {/* ═══ REQUESTS TAB ═══ */}
       {activeTab === 'requests' && (
-        <div className="animate-fadeInFast space-y-8">
+        <div className="animate-fadeInFast space-y-8" role="tabpanel" id="panel-requests" aria-labelledby="tab-requests">
           {/* Received Requests */}
           <div>
             <h3 className="text-base font-display font-semibold text-foreground mb-4 flex items-center gap-2">
@@ -578,7 +639,7 @@ const Friends: React.FC = () => {
 
       {/* ═══ DISCOVER TAB ═══ */}
       {activeTab === 'discover' && (
-        <div className="animate-fadeInFast">
+        <div className="animate-fadeInFast" role="tabpanel" id="panel-discover" aria-labelledby="tab-discover">
           {/* Search */}
           <div className="mb-6">
             <Input
@@ -636,7 +697,7 @@ const Friends: React.FC = () => {
                           </span>
                         )}
                         {result.relationshipStatus === 'pending_received' && (
-                          <Button size="sm" variant="outline" onClick={() => setActiveTab('requests')}>
+                          <Button size="sm" variant="outline" onClick={() => handleTabChange('requests')}>
                             Respond
                           </Button>
                         )}
@@ -706,7 +767,7 @@ const Friends: React.FC = () => {
 
       {/* ═══ LEADERBOARD TAB ═══ */}
       {activeTab === 'leaderboard' && (
-        <div className="animate-fadeInFast">
+        <div className="animate-fadeInFast" role="tabpanel" id="panel-leaderboard" aria-labelledby="tab-leaderboard">
           <Leaderboard />
         </div>
       )}

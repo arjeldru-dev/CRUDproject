@@ -64,6 +64,7 @@ interface PendingTransaction {
   splits?: Array<{ profileId: string; amount: number }>;
   friendProfileId?: string | null;
   categoryRequired?: boolean;
+  userShare?: number;
 }
 
 const Dashboard: React.FC = () => {
@@ -228,11 +229,21 @@ const Dashboard: React.FC = () => {
               let primaryAmount = Number(tx.amount);
               let amountSubtext = `on ${new Date(tx.createdAt).toLocaleDateString()}`;
 
-              if ((tx.type ?? 'EXPENSE') === 'EXPENSE' && tx.payerId === 'self' && tx.splits) {
-                const friendSplit = tx.splits.find((s) => s.profileId !== 'self');
-                if (friendSplit) {
-                  primaryAmount = friendSplit.amount;
-                  amountSubtext = `Your share (Total: ${fmt(Number(tx.amount))}) • on ${new Date(tx.createdAt).toLocaleDateString()}`;
+              if ((tx.type ?? 'EXPENSE') === 'EXPENSE') {
+                if (tx.userShare !== undefined) {
+                  if (categoryRequired) {
+                    primaryAmount = Number(tx.amount);
+                    amountSubtext = `Total paid • on ${new Date(tx.createdAt).toLocaleDateString()}`;
+                  } else {
+                    primaryAmount = tx.userShare;
+                    amountSubtext = `Your share (Total: ${fmt(Number(tx.amount))}) • on ${new Date(tx.createdAt).toLocaleDateString()}`;
+                  }
+                } else if (tx.payerId === 'self' && tx.splits) {
+                  const friendSplit = tx.splits.find((s) => s.profileId !== 'self');
+                  if (friendSplit) {
+                    primaryAmount = friendSplit.amount;
+                    amountSubtext = `Your share (Total: ${fmt(Number(tx.amount))}) • on ${new Date(tx.createdAt).toLocaleDateString()}`;
+                  }
                 }
               }
 
@@ -248,9 +259,15 @@ const Dashboard: React.FC = () => {
                           <span className="font-semibold text-warning">{creatorName}</span> logged a settlement where {tx.payerId === 'self' ? 'they claim to have paid you' : 'they claim you paid them'}.
                         </>
                       ) : tx.payerId !== 'self' ? (
-                        <>
-                          <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense of <span className="font-semibold">{fmt(Number(tx.amount))}</span> where you paid.
-                        </>
+                        categoryRequired ? (
+                          <>
+                            <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense of <span className="font-semibold">{fmt(Number(tx.amount))}</span> where you paid.
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense of <span className="font-semibold">{fmt(Number(tx.amount))}</span> where a friend paid.
+                          </>
+                        )
                       ) : (
                         <>
                           <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense where they paid.

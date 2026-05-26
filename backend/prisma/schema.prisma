@@ -460,9 +460,11 @@ model PendingTransaction {
   updatedAt            DateTime                 @updatedAt @map("updated_at")
   type                 TransactionType          @default(EXPENSE)
   friendProfileId      String?                  @map("friend_profile_id") @db.Uuid
+  groupId              String?                  @map("group_id") @db.Uuid
 
   creator              User                     @relation("PendingTransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
 
+  @@index([groupId])
   @@map("pending_transactions")
 }
 

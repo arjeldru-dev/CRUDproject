@@ -79,6 +79,14 @@ const rarityColors: Record<string, { border: string; bg: string; text: string; t
   },
 };
 
+type ChallengeTabKey = 'active' | 'past' | 'badges';
+
+const VALID_CHALLENGE_TABS: ChallengeTabKey[] = ['active', 'past', 'badges'];
+
+const isValidChallengeTab = (tab: string | null): tab is ChallengeTabKey => {
+  return VALID_CHALLENGE_TABS.includes(tab as ChallengeTabKey);
+};
+
 export const Challenges: React.FC = () => {
   const {
     profile,
@@ -94,19 +102,17 @@ export const Challenges: React.FC = () => {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const [activeTab, setActiveTab] = useState<'active' | 'past' | 'badges'>(
-    tabParam === 'badges' || tabParam === 'active' || tabParam === 'past'
-      ? tabParam
-      : 'active'
+  const [activeTab, setActiveTab] = useState<ChallengeTabKey>(
+    isValidChallengeTab(tabParam) ? tabParam : 'active'
   );
 
   useEffect(() => {
-    if (tabParam === 'active' || tabParam === 'past' || tabParam === 'badges') {
+    if (isValidChallengeTab(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [tabParam]);
 
-  const handleTabChange = (tab: 'active' | 'past' | 'badges') => {
+  const handleTabChange = (tab: ChallengeTabKey) => {
     setActiveTab(tab);
     setSearchParams({ tab });
   };
@@ -263,9 +269,13 @@ export const Challenges: React.FC = () => {
 
       {/* Tabs Layout */}
       <div className="space-y-6">
-        <div className="flex border-b border-border/40 gap-6">
+        <div className="flex border-b border-border/40 gap-6" role="tablist" aria-label="Challenges tabs">
           <button
             onClick={() => handleTabChange('active')}
+            id="tab-active"
+            role="tab"
+            aria-selected={activeTab === 'active'}
+            aria-controls="panel-active"
             className={`pb-4 text-sm font-semibold tracking-wide border-b-2 transition-all relative ${
               activeTab === 'active'
                 ? 'border-primary text-foreground'
@@ -282,6 +292,10 @@ export const Challenges: React.FC = () => {
           
           <button
             onClick={() => handleTabChange('past')}
+            id="tab-past"
+            role="tab"
+            aria-selected={activeTab === 'past'}
+            aria-controls="panel-past"
             className={`pb-4 text-sm font-semibold tracking-wide border-b-2 transition-all ${
               activeTab === 'past'
                 ? 'border-primary text-foreground'
@@ -293,6 +307,10 @@ export const Challenges: React.FC = () => {
 
           <button
             onClick={() => handleTabChange('badges')}
+            id="tab-badges"
+            role="tab"
+            aria-selected={activeTab === 'badges'}
+            aria-controls="panel-badges"
             className={`pb-4 text-sm font-semibold tracking-wide border-b-2 transition-all ${
               activeTab === 'badges'
                 ? 'border-primary text-foreground'
@@ -323,7 +341,7 @@ export const Challenges: React.FC = () => {
           <div>
             {/* ACTIVE TAB */}
             {activeTab === 'active' && (
-              <div className="space-y-8">
+              <div className="space-y-8" role="tabpanel" id="panel-active" aria-labelledby="tab-active">
                 {/* ── Pending Invitations Segment ── */}
                 {pendingChallenges.length > 0 && (
                   <div className="space-y-4">
@@ -574,7 +592,7 @@ export const Challenges: React.FC = () => {
 
             {/* PAST TAB */}
             {activeTab === 'past' && (
-              <div className="space-y-4">
+              <div className="space-y-4" role="tabpanel" id="panel-past" aria-labelledby="tab-past">
                 <h3 className="text-sm font-bold uppercase tracking-wider text-muted flex items-center gap-2">
                   <Calendar className="w-4 h-4" />
                   Past Challenges History
@@ -685,7 +703,7 @@ export const Challenges: React.FC = () => {
 
             {/* BADGES TAB */}
             {activeTab === 'badges' && (
-              <div className="space-y-10">
+              <div className="space-y-10" role="tabpanel" id="panel-badges" aria-labelledby="tab-badges">
                 {/* Badges Grid */}
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold uppercase tracking-wider text-muted flex items-center gap-2">

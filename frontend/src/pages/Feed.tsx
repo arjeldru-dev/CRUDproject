@@ -21,7 +21,7 @@ const Feed: React.FC = () => {
 
   useEffect(() => {
     fetchFeed(true); // Initial fetch (reset)
-  }, []);
+  }, [fetchFeed]);
 
   useEffect(() => {
     if (inView && nextCursor && !isFetchingNextPage && !isLoading) {

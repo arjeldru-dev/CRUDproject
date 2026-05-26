@@ -26,6 +26,7 @@ export interface FeedPost {
     challengeId?: string;
     challengeName?: string;
     streakDays?: number;
+    involvedFriendUserIds?: string[];
   };
   isPublic: boolean;
   createdAt: string;
@@ -67,6 +68,8 @@ interface FeedState {
   togglePostPrivacy: (postId: string) => Promise<void>;
 }
 
+let fetchAbortController: AbortController | null = null;
+
 export const useFeedStore = create<FeedState>((set, get) => ({
   posts: [],
   nextCursor: null,
@@ -80,30 +83,49 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     if (isLoading || (isFetchingNextPage && !reset)) return;
 
     if (reset) {
+      if (fetchAbortController) {
+        fetchAbortController.abort();
+      }
       set({ isLoading: true, error: null });
     } else {
       set({ isFetchingNextPage: true, error: null });
     }
 
+    const controller = new AbortController();
+    fetchAbortController = controller;
+
     try {
       const cursorParam = reset ? '' : nextCursor ? `?cursor=${nextCursor}` : '';
-      const response = await api.get(`/feed${cursorParam}`);
+      const response = await api.get(`/feed${cursorParam}`, {
+        signal: controller.signal,
+      });
       
-      const newPosts = response.data.posts;
-      const newNextCursor = response.data.nextCursor;
+      if (fetchAbortController === controller) {
+        const newPosts = response.data.posts;
+        const newNextCursor = response.data.nextCursor;
 
-      set({
-        posts: reset ? newPosts : [...posts, ...newPosts],
-        nextCursor: newNextCursor,
-        isLoading: false,
-        isFetchingNextPage: false,
-      });
+        set({
+          posts: reset ? newPosts : [...posts, ...newPosts],
+          nextCursor: newNextCursor,
+          isLoading: false,
+          isFetchingNextPage: false,
+        });
+      }
     } catch (err: any) {
-      set({
-        error: err.response?.data?.error || 'Failed to fetch feed',
-        isLoading: false,
-        isFetchingNextPage: false,
-      });
+      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+        return;
+      }
+      if (fetchAbortController === controller) {
+        set({
+          error: err.response?.data?.error || 'Failed to fetch feed',
+          isLoading: false,
+          isFetchingNextPage: false,
+        });
+      }
+    } finally {
+      if (fetchAbortController === controller) {
+        fetchAbortController = null;
+      }
     }
   },
 

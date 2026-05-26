@@ -325,27 +325,36 @@ export const gamificationService = {
         }
 
         if (requirementMet) {
-          // Award badge
-          const userBadge = await prisma.userBadge.create({
-            data: {
-              userId,
-              badgeId: badge.id,
-            },
-          });
-          awardedUserBadges.push(userBadge);
+          try {
+            // Award badge
+            const userBadge = await prisma.userBadge.create({
+              data: {
+                userId,
+                badgeId: badge.id,
+              },
+            });
+            awardedUserBadges.push(userBadge);
 
-          // Add points
-          await this.addPoints(userId, badge.pointsAwarded);
+            // Add points
+            await this.addPoints(userId, badge.pointsAwarded);
 
-          // Create notification
-          await createNotification({
-            recipientId: userId,
-            type: 'BADGE_UNLOCKED',
-            data: { badgeName: badge.name, badgeSlug: badge.slug },
-          });
+            // Create notification
+            await createNotification({
+              recipientId: userId,
+              type: 'BADGE_UNLOCKED',
+              data: { badgeName: badge.name, badgeSlug: badge.slug },
+            });
 
-          // Generate feed post
-          await feedService.generateBadgeEarnedPost(userId, badge.slug, badge.name);
+            // Generate feed post
+            await feedService.generateBadgeEarnedPost(userId, badge.slug, badge.name);
+          } catch (err: any) {
+            // P2002 = unique constraint violation (badge already awarded by concurrent execution)
+            if (err.code === 'P2002') {
+              console.log(`Badge ${badge.slug} already awarded concurrently to user ${userId}, skipping duplicate award.`);
+              continue;
+            }
+            throw err;
+          }
         }
       }
 
@@ -353,6 +362,22 @@ export const gamificationService = {
     } catch (error) {
       console.error('Failed to evaluate and award badges:', error);
       return [];
+    }
+  },
+
+  /**
+   * Run gamification updates sequentially to prevent race conditions on streaks, points, and badges.
+   */
+  async triggerGamificationUpdates(userId: string): Promise<void> {
+    try {
+      // 1. Update streak first
+      await this.updateStreak(userId);
+      // 2. Evaluate and award badges (after streak is updated, so streak badges have correct value)
+      await this.evaluateAndAwardBadges(userId);
+      // 3. Evaluate challenges (which can award badges to challenge winners sequentially)
+      await this.evaluateChallenges(userId);
+    } catch (error) {
+      console.error(`Failed to trigger gamification updates for user ${userId}:`, error);
     }
   },
 
@@ -795,6 +820,11 @@ export const gamificationService = {
         where: {
           status: 'ACTIVE',
           endDate: { lt: now },
+          participants: {
+            some: {
+              userId,
+            },
+          },
         },
         include: {
           participants: true,

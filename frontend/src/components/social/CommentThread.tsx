@@ -37,7 +37,7 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId, initialCount }) =
   };
 
   useEffect(() => {
-    if (isOpen && comments.length === 0) {
+    if (isOpen) {
       fetchComments();
     }
   }, [isOpen]);

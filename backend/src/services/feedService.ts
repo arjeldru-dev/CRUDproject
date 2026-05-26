@@ -35,24 +35,26 @@ export const feedService = {
       let friendUserId: string | null = null;
       let involvedFriendUserIds: string[] = [];
 
-      if (involvedFriendIds.length > 0) {
-        const friends = await prisma.friendProfile.findMany({
-          where: { id: { in: involvedFriendIds } },
+      const validFriendIds = involvedFriendIds.filter(id => id !== 'self');
+      let friends: any[] = [];
+      if (validFriendIds.length > 0) {
+        friends = await prisma.friendProfile.findMany({
+          where: { id: { in: validFriendIds } },
         });
+      }
 
-        if (friends.length === 1) {
-          friendName = friends[0].name;
-          friendUserId = friends[0].friendUserId;
-          description += ` — ₱${amount.toLocaleString()} with ${friendName}`;
-        } else if (friends.length > 1) {
-          const names = friends.map(f => f.name);
-          friendName = names.join(', ');
-          involvedFriendUserIds = friends.map(f => f.friendUserId).filter(id => id !== null) as string[];
-          friendUserId = involvedFriendUserIds[0] || null;
-          description += ` — ₱${amount.toLocaleString()} with ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-        }
+      if (friends.length === 1) {
+        friendName = friends[0].name;
+        friendUserId = friends[0].friendUserId;
+        description += ` — ₱${amount.toLocaleString()} with ${friendName}`;
+      } else if (friends.length > 1) {
+        const names = friends.map(f => f.name);
+        friendName = names.join(', ');
+        involvedFriendUserIds = friends.map(f => f.friendUserId).filter(id => id !== null) as string[];
+        friendUserId = involvedFriendUserIds[0] || null;
+        description += ` — ₱${amount.toLocaleString()} with ${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
       } else {
-        // Fallback for older transactions or solo
+        // Fallback for older transactions, solo, or if friend profiles were not found/deleted
         const friendEntry = transaction.ledgerEntries.find(
           (e) => e.friendProfileId !== null
         );
@@ -101,6 +103,7 @@ export const feedService = {
         where: { id: transactionId },
         include: {
           creator: true,
+          category: true,
           ledgerEntries: {
             include: {
               friendProfile: true,
@@ -112,6 +115,7 @@ export const feedService = {
       if (!transaction || transaction.type !== 'SETTLEMENT') return;
 
       const creator = transaction.creator;
+      const categoryName = transaction.category?.name || undefined;
       const amount = transaction.totalAmount.toNumber();
 
       const friendEntry = transaction.ledgerEntries.find(
@@ -125,6 +129,7 @@ export const feedService = {
       const content = JSON.stringify({
         description,
         amount,
+        categoryName,
         friendName,
         friendUserId,
         transactionId: transaction.id,
