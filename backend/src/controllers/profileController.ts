@@ -153,23 +153,15 @@ export const uploadAvatar = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No file uploaded.' });
     }
 
-    // Resize to 256x256 and compress to JPEG format using sharp
+    // Resize to 256x256 and compress to WebP format using sharp to get a buffer
     const compressedBuffer = await sharp(req.file.buffer)
       .resize(256, 256, { fit: 'cover', position: 'center' })
-      .jpeg({ quality: 80 })
+      .webp({ quality: 80 })
       .toBuffer();
 
-    // Write to disk using the user's ID as the filename
-    const filename = `${req.user.id}.jpg`;
-    const filepath = path.join(UPLOADS_DIR, filename);
-    fs.writeFileSync(filepath, compressedBuffer);
-
-    // Build the public URL from the request's own origin
-    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const host = req.headers['x-forwarded-host'] || req.get('host');
-    const baseUrl = `${protocol}://${host}`;
-    const cacheBuster = Date.now();
-    const avatarUrl = `${baseUrl}/uploads/avatars/${filename}?t=${cacheBuster}`;
+    // Convert buffer to Base64 Data URL
+    const base64Image = compressedBuffer.toString('base64');
+    const avatarUrl = `data:image/webp;base64,${base64Image}`;
 
     // Update user record
     await prisma.user.update({
