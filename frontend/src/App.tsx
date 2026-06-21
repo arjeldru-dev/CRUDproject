@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AuthLayout from './components/layout/AuthLayout';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -37,6 +37,9 @@ function App() {
     <BrowserRouter>
       <ThemeInitializer />
       <Routes>
+        {/* Redirect root path to dashboard */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
         {/* Public auth routes */}
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<Login />} />
