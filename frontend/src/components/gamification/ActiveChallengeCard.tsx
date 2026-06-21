@@ -4,7 +4,7 @@ import { useGamificationStore } from '../../store/gamificationStore';
 import type { ChallengeWithDetails } from '../../store/gamificationStore';
 import Avatar from '../ui/Avatar';
 
-const typeIcons: Record<string, React.FC<{ className?: string }>> = {
+const typeIcons: Record<string, React.ComponentType<any>> = {
   NO_OVERSPEND_WEEK: Trophy,
   NO_OVERSPEND_MONTH: Trophy,
   COFFEE_FREE_WEEK: Coffee,
@@ -20,13 +20,16 @@ const typeLabels: Record<string, string> = {
   CUSTOM: 'Custom Challenge',
 };
 
-export const ActiveChallengeCard: React.FC = () => {
+const ActiveChallengeCardComponent: React.FC = () => {
   const { challenges, isLoading } = useGamificationStore();
 
   // If loading or challenges not fetched yet
   if (isLoading) {
     return (
-      <div className="container-card p-6 md:p-8 hover:border-primary/30 transition-all duration-300">
+      <div 
+        className="bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md animate-pulse"
+        style={{ padding: '24px' }}
+      >
         <div className="h-4 w-28 bg-surface-hover rounded animate-pulse mb-4" />
         <div className="h-6 w-48 bg-surface-hover rounded animate-pulse mb-3" />
         <div className="h-2 w-full bg-surface-hover rounded-full animate-pulse mt-4 mb-2" />
@@ -60,56 +63,50 @@ export const ActiveChallengeCard: React.FC = () => {
 
   const IconComponent = typeIcons[type] || Trophy;
 
-  // Memoize duration and progress math to prevent calculations on every render
-  const { totalDays, currentDay, pct } = React.useMemo(() => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const now = new Date();
-    // Calculate difference in days (ceiling)
-    const total = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-    const elapsed = Math.max(0, Math.ceil((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
-    const current = Math.min(elapsed, total);
-    const percentage = Math.min((current / total) * 100, 100);
-    return { totalDays: total, currentDay: current, pct: percentage };
-  }, [startDate, endDate]);
+  // Calculate duration and progress math directly to prevent conditional Hook errors
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  const now = new Date();
+  // Calculate difference in days (ceiling)
+  const totalDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+  const elapsed = Math.max(0, Math.ceil((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+  const currentDay = Math.min(elapsed, totalDays);
+  const pct = Math.min((currentDay / totalDays) * 100, 100);
 
   // States
   const isFailed = myStatus === 'failed';
   const isEndingToday = daysRemaining === 0 && !isFailed;
   
   // Layout customization based on status
-  let cardClass = 'hover:border-primary/30';
+  let cardClass = '';
   let barColor = 'bg-primary';
-  let statusText = `Day ${currentDay} of ${totalDays} — Stay under budget!`;
+  let statusText = `Day ${currentDay} of ${totalDays} - Stay under budget!`;
   let badgeEl = null;
 
   if (isFailed) {
-    cardClass = 'border-error/40 bg-error/5 hover:border-error/60';
     barColor = 'bg-error/40';
     statusText = 'You went over budget in a category!';
     badgeEl = (
       <div className="flex items-center gap-1 text-xs text-error font-semibold bg-error/15 px-2.5 py-1 rounded-lg">
-        <AlertTriangle className="w-3.5 h-3.5" />
+        <AlertTriangle className="w-3.5 h-3.5" aria-hidden="true" />
         <span>Failed</span>
       </div>
     );
   } else if (isEndingToday) {
-    cardClass = 'border-warning/50 bg-warning/5 hover:border-warning/70';
     barColor = 'bg-warning animate-pulse';
-    statusText = 'Final day — finish strong!';
+    statusText = 'Final day - finish strong!';
     badgeEl = (
       <div className="flex items-center gap-1 text-xs text-warning font-semibold bg-warning/15 px-2.5 py-1 rounded-lg">
-        <Clock className="w-3.5 h-3.5" />
+        <Clock className="w-3.5 h-3.5" aria-hidden="true" />
         <span>Ending Today</span>
       </div>
     );
   } else {
     // Normal active on track
-    cardClass = 'border-success/30 bg-success/5 hover:border-success/50';
     barColor = 'bg-success';
     badgeEl = (
       <div className="flex items-center gap-1 text-xs text-success font-semibold bg-success/15 px-2.5 py-1 rounded-lg">
-        <CheckCircle className="w-3.5 h-3.5" />
+        <CheckCircle className="w-3.5 h-3.5" aria-hidden="true" />
         <span>On Track</span>
       </div>
     );
@@ -122,26 +119,23 @@ export const ActiveChallengeCard: React.FC = () => {
   const overflowCount = acceptedParticipants.length - maxShownAvatars;
 
   return (
-    <div className={`container-card p-6 md:p-8 transition-all duration-300 flex flex-col justify-between ${cardClass}`}>
+    <div 
+      className={`bg-surface rounded-2xl transition-[border-color] duration-200 ease-out flex flex-col justify-between group h-full flex-1 ${cardClass}`}
+      style={{ padding: '24px' }}
+    >
       <div>
-        {/* Header section */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <Trophy className="w-5 h-5 text-primary" />
-            <span className="text-xs text-muted font-bold tracking-wider uppercase">Active Challenge</span>
-          </div>
-          {badgeEl}
-        </div>
-
-        {/* Challenge info */}
+        {/* Challenge info & Status Badge */}
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-surface flex items-center justify-center shrink-0 border border-border/40">
-            <IconComponent className="w-6 h-6 text-foreground" />
+          <div className="w-12 h-12 rounded-xl bg-surface flex items-center justify-center shrink-0 border border-border/40 transition-colors duration-200 group-hover:border-border">
+            <IconComponent className="w-6 h-6 text-foreground transition-all duration-300 group-hover:scale-110 group-hover:rotate-[6deg]" aria-hidden="true" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-lg font-display font-semibold text-foreground truncate">
-              {name || typeLabels[type]}
-            </h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-lg font-display font-semibold text-foreground truncate">
+                {name || typeLabels[type]}
+              </h3>
+              {badgeEl}
+            </div>
             <p className="text-xs text-muted mt-1 leading-snug truncate">
               {activeChallenge.description || `Stay under budget for ${typeLabels[type].toLowerCase()}!`}
             </p>
@@ -150,10 +144,21 @@ export const ActiveChallengeCard: React.FC = () => {
 
         {/* Progress Bar */}
         <div className="mt-6">
-          <div className="w-full h-2 bg-surface rounded-full overflow-hidden border border-border/10">
+          <div className="flex justify-between items-center mb-1.5">
+            <span className="text-xs font-semibold text-muted">Progress</span>
+            <span className="text-xs font-mono font-bold text-foreground">{pct.toFixed(0)}%</span>
+          </div>
+          <div
+            className="w-full h-2 bg-surface rounded-full overflow-hidden border border-border/10"
+            role="progressbar"
+            aria-valuenow={Math.round(pct)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Challenge progress"
+          >
             <div
-              className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-              style={{ width: `${pct}%` }}
+              className={`h-full w-full rounded-full transition-transform duration-500 ${barColor}`}
+              style={{ transform: `scaleX(${pct / 100})`, transformOrigin: 'left' }}
             />
           </div>
           <div className="flex items-center justify-between mt-2.5">
@@ -161,17 +166,18 @@ export const ActiveChallengeCard: React.FC = () => {
               {statusText}
             </p>
             <p className="text-xs text-muted flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5" />
-              <span>
-                {daysRemaining} {daysRemaining === 1 ? 'day' : 'days'} left
+              <Calendar className="w-3.5 h-3.5" aria-hidden="true" />
+              <span className="font-mono text-foreground font-semibold">
+                {daysRemaining}
               </span>
+              <span>{daysRemaining === 1 ? 'day' : 'days'} left</span>
             </p>
           </div>
         </div>
       </div>
 
       {/* Participants section */}
-      <div className="mt-5 pt-4 border-t border-border/50 flex items-center justify-between">
+      <div className="mt-5 pt-4 flex items-center justify-between">
         <span className="text-xs text-muted font-medium">Participants:</span>
         <div className="flex items-center -space-x-2">
           {displayParticipants.map((p) => {
@@ -206,3 +212,5 @@ export const ActiveChallengeCard: React.FC = () => {
     </div>
   );
 };
+
+export const ActiveChallengeCard = React.memo(ActiveChallengeCardComponent);

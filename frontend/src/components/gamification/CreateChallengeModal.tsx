@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import api from '../../lib/api';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useGamificationStore } from '../../store/gamificationStore';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -9,6 +10,7 @@ interface CreateChallengeModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  initialFriendUserId?: string | null;
 }
 
 interface Category {
@@ -55,8 +57,10 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
   isOpen,
   onClose,
   onSuccess,
+  initialFriendUserId,
 }) => {
   const { createChallenge, isLoading } = useGamificationStore();
+  const dialogRef = useFocusTrap(isOpen, onClose);
 
   // Data states
   const [categories, setCategories] = useState<Category[]>([]);
@@ -76,19 +80,22 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Fetch categories and active friends
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     setDataLoading(true);
     try {
       const [categoriesRes, friendsRes] = await Promise.all([
-        api.get('/categories'),
-        api.get('/friends'),
+        api.get('/categories', { signal }),
+        api.get('/friends', { signal }),
       ]);
       setCategories(categoriesRes.data.categories || []);
       // Filter out ghost profiles — ghosts cannot participate in challenges
       const activeFriends = (friendsRes.data.friends || []).filter((f: Friend) => !f.isGhost);
       setFriends(activeFriends);
-    } catch {
-      setFormError('Failed to load friends or categories.');
+    } catch (err: unknown) {
+      const error = err as any;
+      if (error.name !== 'CanceledError' && error.name !== 'AbortError' && error.message !== 'canceled') {
+        setFormError('Failed to load friends or categories.');
+      }
     } finally {
       setDataLoading(false);
     }
@@ -122,14 +129,18 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
     setName(type === 'CUSTOM' ? '' : template.name);
     setDescription(type === 'CUSTOM' ? '' : template.description);
     setCategoryId('');
-    setSelectedFriendIds([]);
+    setSelectedFriendIds(initialFriendUserId ? [initialFriendUserId] : []);
     setFormError('');
-  }, [type]);
+  }, [type, initialFriendUserId]);
 
   useEffect(() => {
     if (isOpen) {
-      fetchData();
+      const controller = new AbortController();
+      fetchData(controller.signal);
       resetForm();
+      return () => {
+        controller.abort();
+      };
     }
   }, [isOpen, fetchData, resetForm]);
 
@@ -227,20 +238,26 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal Container */}
-      <div className="relative w-full sm:max-w-lg bg-surface border border-border rounded-t-3xl sm:rounded-2xl shadow-[0_8px_40px_rgb(0,0,0,0.12)] max-h-[90vh] overflow-y-auto animate-spring">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="create-challenge-title"
+        className="relative w-full max-w-lg bg-surface border border-border rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.15)] max-h-[70dvh] sm:max-h-[85dvh] overflow-y-auto animate-spring z-10"
+      >
         {/* Header */}
-        <div className="sticky top-0 bg-surface/95 backdrop-blur-sm border-b border-border px-8 py-5 flex items-center justify-between z-10">
+        <div className="sticky top-0 bg-surface/95 backdrop-blur-md border-b border-border flex items-center justify-between z-10 p-4 sm:p-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
               <Trophy className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="text-lg font-display font-semibold text-foreground">
+              <h2 id="create-challenge-title" className="text-lg font-display font-semibold text-foreground">
                 Challenge Friends
               </h2>
               <p className="text-xs text-muted mt-0.5">
@@ -250,14 +267,15 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-xl text-muted hover:text-foreground hover:bg-background/50 active:scale-[0.98] transition-all duration-200 cursor-pointer"
+            className="p-2 rounded-xl text-muted hover:text-foreground hover:bg-background/50 cursor-pointer btn-active-tactile transition-[transform,background-color] duration-160 ease-out"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="px-8 py-6">
+        <div className="p-4 sm:p-6">
           {dataLoading ? (
             <div className="space-y-4">
               {[...Array(4)].map((_, i) => (
@@ -265,25 +283,32 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
               ))}
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-5">
+            <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-5">
               {/* Challenge Template Type */}
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1 sm:gap-1.5">
                 <label htmlFor="challenge-type" className="text-sm font-medium text-muted flex items-center gap-2">
                   <Trophy className="w-3.5 h-3.5 text-primary" />
                   Challenge Type
                 </label>
-                <select
-                  id="challenge-type"
-                  value={type}
-                  onChange={(e) => setType(e.target.value as keyof typeof typeTemplates)}
-                  className="w-full px-4 py-3.5 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border cursor-pointer appearance-none"
-                >
-                  {Object.entries(typeTemplates).map(([key, template]) => (
-                    <option key={key} value={key}>
-                      {template.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative w-full">
+                  <select
+                    id="challenge-type"
+                    value={type}
+                    onChange={(e) => setType(e.target.value as keyof typeof typeTemplates)}
+                    className="w-full px-4 py-3 sm:py-3.5 pr-10 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border cursor-pointer appearance-none"
+                  >
+                    {Object.entries(typeTemplates).map(([key, template]) => (
+                      <option key={key} value={key}>
+                        {template.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
               </div>
 
               {/* Challenge Name (Custom override) */}
@@ -304,32 +329,39 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
               )}
 
               {/* Scope Category */}
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col gap-1 sm:gap-1.5">
                 <label htmlFor="challenge-category" className="text-sm font-medium text-muted flex items-center gap-2">
                   <Tag className="w-3.5 h-3.5 text-secondary" />
                   Target Budget Category (Optional)
                 </label>
-                <select
-                  id="challenge-category"
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary/10 focus:border-secondary hover:border-border cursor-pointer appearance-none"
-                >
-                  <option value="">All Categories (Whole Budget)</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative w-full">
+                  <select
+                    id="challenge-category"
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className="w-full px-4 py-3 sm:py-3.5 pr-10 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary/10 focus:border-secondary hover:border-border cursor-pointer appearance-none"
+                  >
+                    <option value="">All Categories (Whole Budget)</option>
+                    {categories.map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </div>
                 <p className="text-[10px] text-muted-more px-1">
                   Leave as "All Categories" to fail if any budget goes over.
                 </p>
               </div>
 
               {/* Date Inputs */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div className="flex flex-col gap-1 sm:gap-1.5">
                   <label htmlFor="challenge-start" className="text-sm font-medium text-muted flex items-center gap-2">
                     <Calendar className="w-3.5 h-3.5 text-primary" />
                     Start Date
@@ -339,12 +371,12 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
                     id="challenge-start"
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border cursor-pointer"
+                    className="w-full px-4 py-2 sm:py-3 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border cursor-pointer"
                     required
                   />
                 </div>
 
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-1 sm:gap-1.5">
                   <label htmlFor="challenge-end" className="text-sm font-medium text-muted flex items-center gap-2">
                     <Calendar className="w-3.5 h-3.5 text-primary" />
                     End Date
@@ -354,14 +386,14 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
                     id="challenge-end"
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border cursor-pointer"
+                    className="w-full px-4 py-2 sm:py-3 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/10 focus:border-primary hover:border-border cursor-pointer"
                     required
                   />
                 </div>
               </div>
 
               {/* Invite Friends */}
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-1 sm:gap-2">
                 <label htmlFor="invite-friend-select" className="text-sm font-medium text-muted flex items-center gap-2">
                   <Users className="w-3.5 h-3.5 text-secondary" />
                   Invite Friends
@@ -373,26 +405,33 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
                   </p>
                 ) : (
                   <div className="space-y-3">
-                    <select
-                      id="invite-friend-select"
-                      value=""
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val && !selectedFriendIds.includes(val)) {
-                          setSelectedFriendIds([...selectedFriendIds, val]);
-                        }
-                      }}
-                      className="w-full px-4 py-3.5 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary/10 focus:border-secondary hover:border-border cursor-pointer appearance-none"
-                    >
-                      <option value="">Choose a friend to invite...</option>
-                      {friends
-                        .filter((f) => !selectedFriendIds.includes(f.friendUserId || f.id))
-                        .map((f) => (
-                          <option key={f.id} value={f.friendUserId || f.id}>
-                            {f.name}
-                          </option>
-                        ))}
-                    </select>
+                    <div className="relative w-full">
+                      <select
+                        id="invite-friend-select"
+                        value=""
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          if (val && !selectedFriendIds.includes(val)) {
+                            setSelectedFriendIds([...selectedFriendIds, val]);
+                          }
+                        }}
+                        className="w-full px-4 py-3.5 pr-10 rounded-xl bg-surface border border-border-subtle text-foreground font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-secondary/10 focus:border-secondary hover:border-border cursor-pointer appearance-none"
+                      >
+                        <option value="">Choose a friend to invite...</option>
+                        {friends
+                          .filter((f) => !selectedFriendIds.includes(f.friendUserId || f.id))
+                          .map((f) => (
+                            <option key={f.id} value={f.friendUserId || f.id}>
+                              {f.name}
+                            </option>
+                          ))}
+                      </select>
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </div>
+                    </div>
 
                     {/* Selected Friends Pills */}
                     {selectedFriendIds.length > 0 && (
@@ -403,13 +442,14 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
                           return (
                             <span
                               key={fid}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 bg-secondary/10 text-secondary-focus font-medium rounded-full text-xs border border-secondary/20"
+                              className="inline-flex items-center gap-1.5 pl-3 pr-1 py-1 bg-secondary/10 text-secondary font-medium rounded-full text-xs border border-secondary/20"
                             >
                               {f.name}
                               <button
                                 type="button"
                                 onClick={() => setSelectedFriendIds(selectedFriendIds.filter((id) => id !== fid))}
-                                className="hover:text-error transition-colors cursor-pointer"
+                                className="p-1 text-muted hover:text-error hover:bg-error/10 rounded-full transition-colors cursor-pointer"
+                                aria-label={`Remove ${f.name}`}
                               >
                                 <X className="w-3.5 h-3.5" />
                               </button>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useGamificationStore } from '../../store/gamificationStore';
 import { useAuthStore } from '../../store/authStore';
 import Avatar from '../ui/Avatar';
-import { Lock, Check, Sparkles } from 'lucide-react';
+import { Lock, Check, Crown } from 'lucide-react';
 
 /**
  * FramePicker Component
@@ -14,6 +14,7 @@ export const FramePicker: React.FC = () => {
   const { availableFrames, profile, setActiveFrame, isLoading } = useGamificationStore();
   const [equippingId, setEquippingId] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const totalPoints = profile?.totalPoints || 0;
   const avatarName = user?.displayName || user?.email || 'User';
@@ -22,21 +23,25 @@ export const FramePicker: React.FC = () => {
     if (equippingId) return;
     setEquippingId(frameId);
     setLocalSuccess(null);
+    setLocalError(null);
     
     const success = await setActiveFrame(frameId);
     if (success) {
       setLocalSuccess(`Equipped ${frameName}!`);
       setTimeout(() => setLocalSuccess(null), 3000);
+    } else {
+      setLocalError(`Failed to equip ${frameName}.`);
+      setTimeout(() => setLocalError(null), 3500);
     }
     setEquippingId(null);
   };
 
   return (
-    <div className="mt-8">
+    <div>
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
           <h3 className="text-lg font-display font-semibold text-foreground flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-warning fill-warning/20" />
+            <Crown className="w-5 h-5 text-warning fill-warning/20" />
             Avatar Frames
           </h3>
           <p className="text-sm text-muted">
@@ -46,6 +51,11 @@ export const FramePicker: React.FC = () => {
         {localSuccess && (
           <div className="text-xs font-bold text-success bg-success/10 border border-success/20 px-3 py-1.5 rounded-lg animate-fadeInFast">
             {localSuccess}
+          </div>
+        )}
+        {localError && (
+          <div className="text-xs font-bold text-error bg-error/10 border border-error/20 px-3 py-1.5 rounded-lg animate-fadeInFast">
+            {localError}
           </div>
         )}
       </div>
@@ -59,8 +69,12 @@ export const FramePicker: React.FC = () => {
           return (
             <div
               key={frame.id}
+              role="button"
+              tabIndex={isUnlocked && !isActive ? 0 : -1}
+              aria-pressed={isActive}
+              aria-disabled={!isUnlocked || isLoading}
               className={`
-                relative container-card p-4 flex flex-col items-center text-center transition-all duration-300
+                relative bg-surface rounded-2xl flex flex-col items-center text-center focus-visible:ring-2 focus-visible:ring-primary focus-visible:outline-none transition-[transform,opacity,border-color,background-color] duration-160 ease-out active:scale-[0.97] border border-border-subtle
                 ${isActive 
                   ? 'border-primary bg-primary/5 ring-1 ring-primary/20 shadow-md' 
                   : isUnlocked 
@@ -68,8 +82,15 @@ export const FramePicker: React.FC = () => {
                     : 'opacity-75 border-border-subtle bg-surface-hover/10'
                 }
               `}
+              style={{ padding: '20px' }}
               onClick={() => {
                 if (isUnlocked && !isActive && !isLoading) {
+                  handleEquip(frame.id, frame.name);
+                }
+              }}
+              onKeyDown={(e) => {
+                if ((e.key === 'Enter' || e.key === ' ') && isUnlocked && !isActive && !isLoading) {
+                  e.preventDefault();
                   handleEquip(frame.id, frame.name);
                 }
               }}
@@ -85,7 +106,7 @@ export const FramePicker: React.FC = () => {
                 
                 {/* Status Badges overlayed */}
                 {!isUnlocked && (
-                  <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] rounded-xl flex items-center justify-center z-10">
+                  <div className="absolute inset-0 bg-background/50 backdrop-blur-[1px] rounded-2xl flex items-center justify-center z-10">
                     <div className="p-1.5 bg-surface border border-border rounded-lg text-muted shadow-sm">
                       <Lock className="w-4 h-4" />
                     </div>

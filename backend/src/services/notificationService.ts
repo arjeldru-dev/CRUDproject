@@ -80,7 +80,7 @@ export const createNotification = async (params: {
 
   if (subscriptions.length > 0) {
     const payload = JSON.stringify({
-      title: notification.actor?.displayName || notification.actor?.username || 'Hybrid Ledger',
+      title: notification.actor?.displayName || notification.actor?.username || 'BudgetBarkada',
       body: getNotificationText(type, notification.actor?.displayName || notification.actor?.username || 'Someone', data),
       icon: notification.actor?.avatarUrl || '/icon-192x192.png',
       data: {
@@ -166,7 +166,7 @@ function getNotificationUrl(type: NotificationType, data?: any): string {
     case 'TRANSACTION_REJECTED':
       return `${baseUrl}/transactions`;
     case 'TRANSACTION_APPROVAL_REQUEST':
-      return `${baseUrl}/`;
+      return `${baseUrl}/dashboard`;
     case 'FEED_REACTION':
     case 'FEED_COMMENT':
       return `${baseUrl}/feed`;

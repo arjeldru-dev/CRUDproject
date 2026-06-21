@@ -54,6 +54,15 @@ export const getFeed = async (req: Request, res: Response) => {
               username: true,
               displayName: true,
               avatarUrl: true,
+              gamification: {
+                select: {
+                  activeFrame: {
+                    select: {
+                      cssClass: true,
+                    },
+                  },
+                },
+              },
             },
           },
           reactions: true,
@@ -109,7 +118,12 @@ export const getFeed = async (req: Request, res: Response) => {
         const formattedPost = {
           id: post.id,
           userId: post.userId,
-          user: post.user,
+          user: {
+            username: post.user.username,
+            displayName: post.user.displayName,
+            avatarUrl: post.user.avatarUrl,
+            activeFrame: post.user.gamification?.activeFrame ?? null,
+          },
           type: post.type,
           content,
           isPublic: post.isPublic,
@@ -215,6 +229,20 @@ export const getComments = async (req: Request, res: Response) => {
             username: true,
             displayName: true,
             avatarUrl: true,
+            gamification: {
+              select: {
+                activeFrame: {
+                  select: {
+                    cssClass: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        likes: {
+          select: {
+            userId: true,
           },
         },
       },
@@ -227,8 +255,21 @@ export const getComments = async (req: Request, res: Response) => {
     }
 
     const formattedComments = comments.map(comment => ({
-      ...comment,
+      id: comment.id,
+      postId: comment.postId,
+      userId: comment.userId,
+      parentId: comment.parentId,
+      text: comment.text,
+      createdAt: comment.createdAt,
       isOwn: comment.userId === userId,
+      likesCount: comment.likes.length,
+      userLiked: comment.likes.some(like => like.userId === userId),
+      user: {
+        username: comment.user.username,
+        displayName: comment.user.displayName,
+        avatarUrl: comment.user.avatarUrl,
+        activeFrame: comment.user.gamification?.activeFrame ?? null,
+      },
     }));
 
     return res.status(200).json({ comments: formattedComments, nextCursor });
@@ -244,7 +285,7 @@ export const reactToPost = async (req: Request, res: Response) => {
     const { emoji } = req.body;
     const userId: string = req.user.id;
 
-    if (!['👍', '❤️', '😮'].includes(emoji)) {
+    if (!['👍', '❤️', '🔥', '😮', '🏆', '🙏'].includes(emoji)) {
       return res.status(400).json({ error: 'Invalid emoji reaction' });
     }
 
@@ -333,7 +374,7 @@ export const reactToPost = async (req: Request, res: Response) => {
 export const addComment = async (req: Request, res: Response) => {
   try {
     const { postId } = req.params;
-    const { text } = req.body;
+    const { text, parentId } = req.body;
     const userId: string = req.user.id;
 
     if (!text || text.trim() === '') {
@@ -382,10 +423,25 @@ export const addComment = async (req: Request, res: Response) => {
       }
     }
 
+    // Validate parentComment if parentId is provided
+    if (parentId) {
+      const parentComment = await prisma.comment.findUnique({
+        where: { id: parentId },
+        select: { postId: true },
+      });
+      if (!parentComment) {
+        return res.status(404).json({ error: 'Parent comment not found' });
+      }
+      if (parentComment.postId !== postId) {
+        return res.status(400).json({ error: 'Parent comment belongs to a different post' });
+      }
+    }
+
     const comment = await prisma.comment.create({
       data: {
         postId,
         userId,
+        parentId: parentId || null,
         text: text.trim(),
       },
       include: {
@@ -394,6 +450,15 @@ export const addComment = async (req: Request, res: Response) => {
             username: true,
             displayName: true,
             avatarUrl: true,
+            gamification: {
+              select: {
+                activeFrame: {
+                  select: {
+                    cssClass: true,
+                  },
+                },
+              },
+            },
           },
         },
       },
@@ -409,7 +474,41 @@ export const addComment = async (req: Request, res: Response) => {
       });
     }
 
-    return res.status(201).json({ comment: { ...comment, isOwn: true } });
+    // Also notify parent comment author if it's a reply and not their own
+    if (parentId) {
+      const parentComment = await prisma.comment.findUnique({
+        where: { id: parentId },
+        select: { userId: true },
+      });
+      if (parentComment && parentComment.userId !== userId) {
+        await createNotification({
+          recipientId: parentComment.userId,
+          actorId: userId,
+          type: 'FEED_COMMENT',
+          data: { postId, commentId: comment.id, parentCommentId: parentId },
+        });
+      }
+    }
+
+    return res.status(201).json({
+      comment: {
+        id: comment.id,
+        postId: comment.postId,
+        userId: comment.userId,
+        parentId: comment.parentId,
+        text: comment.text,
+        createdAt: comment.createdAt,
+        isOwn: true,
+        likesCount: 0,
+        userLiked: false,
+        user: {
+          username: comment.user.username,
+          displayName: comment.user.displayName,
+          avatarUrl: comment.user.avatarUrl,
+          activeFrame: comment.user.gamification?.activeFrame ?? null,
+        },
+      },
+    });
   } catch (error) {
     console.error('Add comment error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -550,6 +649,69 @@ export const updatePost = async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, message: content.message });
   } catch (error) {
     console.error('Update post error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const likeComment = async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const userId: string = req.user.id;
+
+    const comment = await prisma.comment.findUnique({
+      where: { id: commentId },
+    });
+
+    if (!comment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    const existingLike = await prisma.commentLike.findUnique({
+      where: {
+        commentId_userId: {
+          commentId,
+          userId,
+        },
+      },
+    });
+
+    let liked = false;
+    if (existingLike) {
+      await prisma.commentLike.delete({
+        where: {
+          commentId_userId: {
+            commentId,
+            userId,
+          },
+        },
+      });
+    } else {
+      await prisma.commentLike.create({
+        data: {
+          commentId,
+          userId,
+        },
+      });
+      liked = true;
+
+      // Send notification to comment author if not liking own comment
+      if (comment.userId !== userId) {
+        await createNotification({
+          recipientId: comment.userId,
+          actorId: userId,
+          type: 'FEED_REACTION',
+          data: { postId: comment.postId, commentId, emoji: '❤️' },
+        });
+      }
+    }
+
+    const likesCount = await prisma.commentLike.count({
+      where: { commentId },
+    });
+
+    return res.status(200).json({ liked, likesCount });
+  } catch (error) {
+    console.error('Like comment error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };

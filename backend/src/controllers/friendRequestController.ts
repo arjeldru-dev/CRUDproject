@@ -45,6 +45,15 @@ export const searchUsers = async (req: Request, res: Response) => {
         displayName: true,
         avatarUrl: true,
         email: true,
+        gamification: {
+          select: {
+            activeFrame: {
+              select: {
+                cssClass: true,
+              },
+            },
+          },
+        },
       },
       take: 20,
     });
@@ -92,6 +101,7 @@ export const searchUsers = async (req: Request, res: Response) => {
       username: user.username,
       displayName: user.displayName,
       avatarUrl: user.avatarUrl,
+      activeFrame: user.gamification?.activeFrame ?? null,
       relationshipStatus: getRelStatus(user.id),
     }));
 
@@ -287,7 +297,21 @@ export const getReceivedRequests = async (req: Request, res: Response) => {
       where: { receiverId: req.user.id, status: 'PENDING' },
       include: {
         sender: {
-          select: { id: true, username: true, displayName: true, avatarUrl: true },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+            gamification: {
+              select: {
+                activeFrame: {
+                  select: {
+                    cssClass: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -301,6 +325,7 @@ export const getReceivedRequests = async (req: Request, res: Response) => {
         username: r.sender.username,
         displayName: r.sender.displayName,
         avatarUrl: r.sender.avatarUrl,
+        activeFrame: r.sender.gamification?.activeFrame ?? null,
       },
       status: r.status,
       createdAt: r.createdAt,
@@ -323,7 +348,21 @@ export const getSentRequests = async (req: Request, res: Response) => {
       where: { senderId: req.user.id, status: 'PENDING' },
       include: {
         receiver: {
-          select: { id: true, username: true, displayName: true, avatarUrl: true },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+            gamification: {
+              select: {
+                activeFrame: {
+                  select: {
+                    cssClass: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -337,6 +376,7 @@ export const getSentRequests = async (req: Request, res: Response) => {
         username: r.receiver.username,
         displayName: r.receiver.displayName,
         avatarUrl: r.receiver.avatarUrl,
+        activeFrame: r.receiver.gamification?.activeFrame ?? null,
       },
       status: r.status,
       createdAt: r.createdAt,
@@ -519,10 +559,38 @@ export const getFriendsList = async (req: Request, res: Response) => {
       },
       include: {
         userA: {
-          select: { id: true, username: true, displayName: true, avatarUrl: true },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+            gamification: {
+              select: {
+                activeFrame: {
+                  select: {
+                    cssClass: true,
+                  },
+                },
+              },
+            },
+          },
         },
         userB: {
-          select: { id: true, username: true, displayName: true, avatarUrl: true },
+          select: {
+            id: true,
+            username: true,
+            displayName: true,
+            avatarUrl: true,
+            gamification: {
+              select: {
+                activeFrame: {
+                  select: {
+                    cssClass: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -605,6 +673,7 @@ export const getFriendsList = async (req: Request, res: Response) => {
         username: friend.username,
         displayName: friend.displayName,
         avatarUrl: friend.avatarUrl,
+        activeFrame: friend.gamification?.activeFrame ?? null,
         netBalance: Math.round(netBalance * 100) / 100,
         createdAt: f.createdAt,
       };

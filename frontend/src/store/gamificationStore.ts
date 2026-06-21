@@ -140,9 +140,10 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
         allBadges: response.data.allBadges,
         availableFrames: response.data.availableFrames,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as any;
       set({
-        error: err.response?.data?.error || 'Failed to fetch gamification profile',
+        error: error.response?.data?.error || 'Failed to fetch gamification profile',
       });
     } finally {
       set((state) => ({
@@ -159,9 +160,10 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
       set({
         leaderboard: response.data.leaderboard,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as any;
       set({
-        error: err.response?.data?.error || 'Failed to fetch leaderboard',
+        error: error.response?.data?.error || 'Failed to fetch leaderboard',
       });
     } finally {
       set((state) => ({
@@ -179,9 +181,10 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
       set({
         challenges: response.data.challenges,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as any;
       set({
-        error: err.response?.data?.error || 'Failed to fetch challenges',
+        error: error.response?.data?.error || 'Failed to fetch challenges',
       });
     } finally {
       set((state) => ({
@@ -211,9 +214,10 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
         });
       }
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as any;
       set({
-        error: err.response?.data?.error || 'Failed to update active avatar frame',
+        error: error.response?.data?.error || 'Failed to update active avatar frame',
       });
       return false;
     }
@@ -224,9 +228,10 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
     try {
       await api.post('/gamification/challenges', data);
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as any;
       set({
-        error: err.response?.data?.error || 'Failed to create challenge',
+        error: error.response?.data?.error || 'Failed to create challenge',
       });
       return false;
     }
@@ -237,9 +242,10 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
     try {
       await api.post(`/gamification/challenges/${challengeId}/join`);
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as any;
       set({
-        error: err.response?.data?.error || 'Failed to join challenge',
+        error: error.response?.data?.error || 'Failed to join challenge',
       });
       return false;
     }
@@ -250,9 +256,10 @@ export const useGamificationStore = create<GamificationState>((set, get) => ({
     try {
       await api.delete(`/gamification/challenges/${challengeId}`);
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as any;
       set({
-        error: err.response?.data?.error || 'Failed to cancel challenge',
+        error: error.response?.data?.error || 'Failed to cancel challenge',
       });
       return false;
     }

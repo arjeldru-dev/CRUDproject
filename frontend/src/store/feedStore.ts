@@ -8,6 +8,7 @@ export interface FeedPost {
     username: string | null;
     displayName: string | null;
     avatarUrl: string | null;
+    activeFrame?: { cssClass: string } | null;
   };
   type: 'EXPENSE_ADDED' | 'SETTLEMENT_COMPLETED' | 'GROUP_SPLIT_CREATED' | 'BUDGET_MILESTONE' | 'CHALLENGE_COMPLETED' | 'BADGE_EARNED' | 'STREAK_MILESTONE';
   content: {
@@ -42,13 +43,17 @@ export interface Comment {
   id: string;
   postId: string;
   userId: string;
+  parentId?: string | null;
   text: string;
   createdAt: string;
   isOwn: boolean;
+  likesCount: number;
+  userLiked: boolean;
   user: {
     username: string | null;
     displayName: string | null;
     avatarUrl: string | null;
+    activeFrame?: { cssClass: string } | null;
   };
 }
 
@@ -61,7 +66,8 @@ interface FeedState {
 
   fetchFeed: (reset?: boolean) => Promise<void>;
   reactToPost: (postId: string, emoji: string) => Promise<void>;
-  addComment: (postId: string, text: string) => Promise<Comment | null>;
+  addComment: (postId: string, text: string, parentId?: string | null) => Promise<Comment | null>;
+  likeComment: (commentId: string) => Promise<{ liked: boolean; likesCount: number } | null>;
   deleteComment: (postId: string, commentId: string) => Promise<void>;
   deletePost: (postId: string) => Promise<void>;
   updatePostMessage: (postId: string, message: string) => Promise<void>;
@@ -111,13 +117,14 @@ export const useFeedStore = create<FeedState>((set, get) => ({
           isFetchingNextPage: false,
         });
       }
-    } catch (err: any) {
-      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') {
+    } catch (err: unknown) {
+      const error = err as any;
+      if (error.name === 'CanceledError' || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
         return;
       }
       if (fetchAbortController === controller) {
         set({
-          error: err.response?.data?.error || 'Failed to fetch feed',
+          error: error.response?.data?.error || 'Failed to fetch feed',
           isLoading: false,
           isFetchingNextPage: false,
         });
@@ -140,7 +147,8 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         const reactionIndex = reactions.findIndex(r => r.emoji === emoji);
 
         if (reactionIndex > -1) {
-          const reaction = reactions[reactionIndex];
+          const reaction = { ...reactions[reactionIndex] };
+          reactions[reactionIndex] = reaction;
           if (reaction.userReacted) {
             // Remove
             reaction.count--;
@@ -166,16 +174,16 @@ export const useFeedStore = create<FeedState>((set, get) => ({
 
     try {
       await api.post(`/feed/${postId}/react`, { emoji });
-    } catch (err) {
+    } catch (err: unknown) {
       // Rollback on error
       set({ posts: originalPosts });
       console.error('Failed to react to post:', err);
     }
   },
 
-  addComment: async (postId: string, text: string) => {
+  addComment: async (postId: string, text: string, parentId?: string | null) => {
     try {
-      const response = await api.post(`/feed/${postId}/comment`, { text });
+      const response = await api.post(`/feed/${postId}/comment`, { text, parentId });
       const newComment = response.data.comment;
 
       // Update comment count in posts list
@@ -189,8 +197,18 @@ export const useFeedStore = create<FeedState>((set, get) => ({
 
       set({ posts: updatedPosts });
       return newComment;
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to add comment:', err);
+      return null;
+    }
+  },
+
+  likeComment: async (commentId: string) => {
+    try {
+      const response = await api.post(`/feed/comment/${commentId}/like`);
+      return response.data;
+    } catch (err: unknown) {
+      console.error('Failed to like comment:', err);
       return null;
     }
   },
@@ -209,7 +227,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       });
 
       set({ posts: updatedPosts });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to delete comment:', err);
     }
   },
@@ -219,7 +237,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
       await api.delete(`/feed/${postId}`);
       const { posts } = get();
       set({ posts: posts.filter(p => p.id !== postId) });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to delete post:', err);
       throw err;
     }
@@ -241,7 +259,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
           return p;
         })
       });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to update post message:', err);
       throw err;
     }
@@ -263,7 +281,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
           return p;
         })
       });
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to toggle post privacy:', err);
       throw err;
     }

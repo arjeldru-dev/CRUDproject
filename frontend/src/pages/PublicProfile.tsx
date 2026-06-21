@@ -4,7 +4,95 @@ import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import Avatar from '../components/ui/Avatar';
 import Button from '../components/ui/Button';
-import { AlertCircle, MapPin, Calendar, Edit3, UserPlus, Clock, UserCheck, ArrowLeft, Users, ShieldAlert, Ban, Trophy, Award, Flame, Star } from 'lucide-react';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import {
+  AlertCircle,
+  MapPin,
+  Calendar,
+  Edit3,
+  UserPlus,
+  Clock,
+  UserCheck,
+  ArrowLeft,
+  Users,
+  Ban,
+  Trophy,
+  Award,
+  Flame,
+  Star,
+  Flag,
+  Receipt,
+  Footprints,
+  Handshake,
+  Sprout,
+  Zap,
+  Crown,
+  Gem,
+  Coins,
+  Sparkles,
+  Map,
+  Wrench,
+  Mountain,
+  Medal,
+  Shield,
+  Swords,
+  Heart,
+  CreditCard,
+  Landmark,
+  LineChart,
+  Coffee,
+  Car,
+} from 'lucide-react';
+
+const badgeIconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  first_expense: Footprints,
+  first_settle: Handshake,
+  streak_3: Sprout,
+  streak_7: Flame,
+  streak_14: Zap,
+  streak_30: Crown,
+  streak_100: Gem,
+  budget_under_50: Coins,
+  challenge_creator_1: Sparkles,
+  challenge_creator_5: Map,
+  challenge_creator_10: Landmark,
+  challenge_no_overspend_week: Calendar,
+  challenge_coffee_free: Coffee,
+  challenge_transport_saver: Car,
+  challenge_custom_complete: Wrench,
+  challenge_no_overspend_month: Mountain,
+  challenge_complete: Trophy,
+  challenge_3: Medal,
+  challenge_5: Award,
+  challenge_10: Zap,
+  challenge_25: Shield,
+  challenge_last_standing: Swords,
+  challenge_perfect_group: Users,
+  social_butterfly: Heart,
+  social_champion: Crown,
+  top_up_master: CreditCard,
+  top_up_grandmaster: Landmark,
+  peacemaker_elite: Handshake,
+  expense_veteran: LineChart,
+  streak_60: Star,
+};
+
+const getIconColorClass = (rarity: string) => {
+  switch (rarity) {
+    case 'COMMON':
+      return 'text-zinc-500 dark:text-zinc-300';
+    case 'UNCOMMON':
+      return 'text-success';
+    case 'RARE':
+      return 'text-primary';
+    case 'EPIC':
+      return 'text-indigo-600 dark:text-indigo-400';
+    case 'LEGENDARY':
+      return 'text-warning';
+    default:
+      return 'text-muted';
+  }
+};
 
 interface PublicProfileData {
   id: string;
@@ -27,6 +115,7 @@ interface PublicProfileData {
       slug: string;
       name: string;
       iconUrl: string;
+      rarity: 'COMMON' | 'UNCOMMON' | 'RARE' | 'EPIC' | 'LEGENDARY';
     }>;
     activeFrame: {
       cssClass: string;
@@ -49,6 +138,17 @@ const PublicProfile: React.FC = () => {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [showQR, setShowQR] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    variant?: 'default' | 'danger';
+    type?: 'alert' | 'confirm' | 'prompt';
+    inputPlaceholder?: string;
+    onConfirm: (val?: string) => void;
+  } | null>(null);
 
   // ── Fetch Profile ─────────────────────────────────────────────────
   const fetchProfile = useCallback(async () => {
@@ -72,6 +172,12 @@ const PublicProfile: React.FC = () => {
       setIsLoading(false);
     }
   }, [username]);
+
+  const handleRetry = useCallback(() => {
+    setIsLoading(true);
+    setError('');
+    fetchProfile();
+  }, [fetchProfile]);
 
   useEffect(() => {
     fetchProfile();
@@ -126,35 +232,59 @@ const PublicProfile: React.FC = () => {
     finally { setActionLoading(false); }
   };
 
-  const handleBlockUser = async () => {
+  const handleBlockUser = () => {
     if (!profile) return;
-    if (!window.confirm(`Are you sure you want to block ${profile.displayName || profile.username}? They will no longer be able to see your activity or contact you.`)) return;
-    
-    setActionLoading(true);
-    try {
-      await api.post(`/friends/block/${profile.id}`);
-      navigate('/friends', { replace: true });
-    } catch { 
-      setError('Failed to block user');
-    } finally {
-      setActionLoading(false);
-    }
+    setDialogConfig({
+      isOpen: true,
+      title: 'Block User',
+      message: `Are you sure you want to block ${profile.displayName || profile.username}? They will no longer be able to see your activity or contact you.`,
+      confirmLabel: 'Block',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        setActionLoading(true);
+        try {
+          await api.post(`/friends/block/${profile.id}`);
+          navigate('/friends', { replace: true });
+        } catch { 
+          setError('Failed to block user');
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
-  const handleReportUser = async () => {
+  const handleReportUser = () => {
     if (!profile) return;
-    const reason = window.prompt(`Report ${profile.displayName || profile.username}\nReason (e.g., Spam, Harassment, Inappropriate):`);
-    if (!reason) return;
-
-    setActionLoading(true);
-    try {
-      await api.post(`/friends/report/${profile.id}`, { reason });
-      alert('User reported successfully.');
-    } catch {
-      setError('Failed to report user');
-    } finally {
-      setActionLoading(false);
-    }
+    setDialogConfig({
+      isOpen: true,
+      title: `Report ${profile.displayName || profile.username}`,
+      message: 'Reason (e.g., Spam, Harassment, Inappropriate):',
+      type: 'prompt',
+      inputPlaceholder: 'Type reason here...',
+      confirmLabel: 'Report',
+      cancelLabel: 'Cancel',
+      onConfirm: async (reason) => {
+        if (!reason) return;
+        setActionLoading(true);
+        try {
+          await api.post(`/friends/report/${profile.id}`, { reason });
+          setDialogConfig({
+            isOpen: true,
+            title: 'Report Filed',
+            message: 'User reported successfully.',
+            type: 'alert',
+            confirmLabel: 'OK',
+            onConfirm: () => {},
+          });
+        } catch {
+          setError('Failed to report user');
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    });
   };
 
   // ── Action Button Logic ───────────────────────────────────────────
@@ -169,32 +299,33 @@ const PublicProfile: React.FC = () => {
             variant="outline"
             size="md"
             id="profile-edit-btn"
+            className="w-full sm:w-auto"
           >
             <Edit3 className="w-4 h-4" /> Edit Profile
           </Button>
         );
       case 'friends':
         return (
-          <div className="inline-flex items-center gap-2 px-5 py-3 rounded-xl bg-success/10 border border-success/20 text-success text-sm font-semibold">
+          <div className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-success/10 border border-success/20 text-success text-sm font-semibold min-h-[44px] w-full sm:w-auto">
             <UserCheck className="w-4 h-4" /> Friends
           </div>
         );
       case 'pending_sent':
         return (
-          <Button variant="outline" size="md" disabled id="profile-pending-btn">
+          <Button variant="outline" size="md" disabled id="profile-pending-btn" className="w-full sm:w-auto">
             <Clock className="w-4 h-4" /> Request Pending...
           </Button>
         );
       case 'pending_received':
         return (
-          <Button size="md" onClick={handleAcceptRequest} isLoading={actionLoading} id="profile-accept-btn">
+          <Button size="md" onClick={handleAcceptRequest} isLoading={actionLoading} id="profile-accept-btn" className="w-full sm:w-auto">
             <UserPlus className="w-4 h-4" /> Accept Request
           </Button>
         );
       case 'none':
       default:
         return (
-          <Button size="md" onClick={handleSendRequest} isLoading={actionLoading} id="profile-add-btn">
+          <Button size="md" onClick={handleSendRequest} isLoading={actionLoading} id="profile-add-btn" className="w-full sm:w-auto">
             <UserPlus className="w-4 h-4" /> Send Friend Request
           </Button>
         );
@@ -204,234 +335,361 @@ const PublicProfile: React.FC = () => {
   // ── Skeleton Loader ───────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="animate-fadeInFast max-w-2xl mx-auto">
-        <div className="h-6 w-16 bg-surface rounded animate-pulse mb-6" />
-        <div className="p-8 bg-surface rounded-2xl">
-          <div className="flex flex-col sm:flex-row items-center gap-6 mb-8">
-            <div className="w-24 h-24 bg-surface-hover rounded-xl animate-pulse" />
-            <div className="flex-1 space-y-3 text-center sm:text-left">
-              <div className="h-7 w-48 bg-surface-hover rounded-lg animate-pulse mx-auto sm:mx-0" />
-              <div className="h-4 w-32 bg-surface-hover rounded animate-pulse mx-auto sm:mx-0" />
-              <div className="h-4 w-64 bg-surface-hover rounded animate-pulse mx-auto sm:mx-0" />
-            </div>
+      <div className="w-full max-w-[680px] mx-auto px-4 animate-fadeInFast">
+        {/* Back Button Placeholder */}
+        <div className="h-6 w-16 bg-surface-hover/50 rounded-lg animate-pulse mb-6" />
+        
+        {/* Profile Card Placeholder */}
+        <div className="glass-card rounded-lg overflow-hidden border border-border/10">
+          <div className="h-[120px] bg-surface-hover/30 animate-pulse" />
+          <div className="px-6 pb-8 flex flex-col items-center">
+            <div className="w-32 h-32 rounded-full bg-surface-hover/50 animate-pulse -mt-[64px] mb-4 border-4 border-surface" />
+            <div className="h-8 w-48 bg-surface-hover/50 rounded-lg animate-pulse mb-2" />
+            <div className="h-4 w-32 bg-surface-hover/50 rounded animate-pulse mb-6" />
+            
+            {/* Action Row Placeholder */}
+            <div className="h-10 w-full sm:w-40 bg-surface-hover/50 rounded-xl animate-pulse mb-6" />
+            
+            {/* Stats Section Placeholder */}
+            <div className="w-full bg-surface-hover/20 rounded-lg p-5 h-36 animate-pulse" />
           </div>
-          <div className="h-10 w-40 bg-surface-hover rounded-xl animate-pulse" />
         </div>
       </div>
     );
   }
-
-  // ── Error State ───────────────────────────────────────────────────
-  if (error) {
-    return (
-      <div className="animate-fadeInFast max-w-2xl mx-auto">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors mb-6 cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </button>
-        <div className="flex flex-col items-center justify-center py-20 container-subtle rounded-2xl">
-          <AlertCircle className="w-10 h-10 text-error mb-4" />
-          <h3 className="text-xl font-display font-semibold text-foreground mb-2">{error}</h3>
-          <p className="text-sm text-muted mb-6">
-            The user you're looking for may not exist or has a private profile.
-          </p>
-          <Button onClick={() => navigate('/friends')} variant="outline" size="md">
-            Go to Friends
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!profile) return null;
 
   return (
-    <div className="animate-fadeInFast max-w-2xl mx-auto">
-      {/* ── Back Button ─────────────────────────────────────────────── */}
+    <div className="w-full max-w-[680px] mx-auto px-4 animate-fadeInFast">
+      {/* ── Back Navigation ─────────────────────────────────────────── */}
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-1.5 text-sm text-muted hover:text-foreground transition-colors mb-6 cursor-pointer"
+        className="flex items-center gap-2 group mb-6 cursor-pointer rounded-lg p-1 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 transition-[transform,color] duration-150 ease-out active:scale-95"
+        aria-label="Go back to previous page"
       >
-        <ArrowLeft className="w-4 h-4" />
-        Back
+        <ArrowLeft className="w-4.5 h-4.5 text-muted group-hover:text-primary group-hover:-translate-x-0.5 transition-transform duration-150 ease-out" />
+        <span className="font-sans font-semibold text-sm text-muted group-hover:text-primary transition-colors duration-150 ease-out">
+          Back
+        </span>
       </button>
 
-      {/* ── Profile Card ────────────────────────────────────────────── */}
-      <div className="p-6 sm:p-8 container-card rounded-2xl">
-        {/* Top Section: Avatar + Info */}
-        <div className="flex flex-col sm:flex-row items-center gap-6 mb-6">
-          <Avatar
-            src={profile.avatarUrl}
-            name={profile.displayName || profile.email}
-            size="xl"
-            frameClass={profile.gamification?.activeFrame?.cssClass || undefined}
-          />
-
-          <div className="flex-1 text-center sm:text-left">
-            <h1 className="text-2xl font-display font-semibold text-foreground tracking-tight">
-              {profile.displayName || profile.username || 'Unnamed User'}
-            </h1>
-            {profile.username && (
-              <p className="text-base text-primary font-medium mt-0.5">
-                @{profile.username}
-              </p>
+      {/* ── Main View Switcher (Error vs Profile Card) ────────────────── */}
+      {error ? (
+        <div className="flex flex-col items-center justify-center py-20 bg-surface border border-border rounded-lg text-center px-6">
+          <AlertCircle className="w-12 h-12 text-error mb-4" />
+          <h3 className="text-xl font-display font-bold text-foreground mb-2">{error}</h3>
+          <p className="text-sm text-muted mb-6 max-w-sm font-sans">
+            {error === 'Profile not found.'
+              ? "The user you're looking for may not exist or has a private profile."
+              : "Please check your network connection and try again."}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto justify-center">
+            {error !== 'Profile not found.' && (
+              <Button onClick={handleRetry} variant="primary" className="rounded-xl w-full sm:w-auto">
+                Retry
+              </Button>
             )}
-            {profile.bio && (
-              <p className="text-sm text-muted mt-2 max-w-md">
-                {profile.bio}
-              </p>
-            )}
+            <Button onClick={() => navigate('/friends')} variant="outline" className="rounded-xl w-full sm:w-auto">
+              Go to Friends
+            </Button>
           </div>
         </div>
-
-        {/* Meta Info */}
-        <div className="flex flex-wrap items-center gap-4 mb-6 text-sm text-muted">
-          {profile.location && (
-            <span className="flex items-center gap-1.5">
-              <MapPin className="w-4 h-4" />
-              {profile.location}
-            </span>
-          )}
-          <span className="flex items-center gap-1.5">
-            <Calendar className="w-4 h-4" />
-            Joined {new Date(profile.createdAt).toLocaleDateString('en-US', {
-              year: 'numeric',
-              month: 'long',
-            })}
-          </span>
-          {profile.friendshipStatus === 'friends' && profile.sharedSplitCount !== undefined && (
-            <span className="flex items-center gap-1.5 text-primary font-medium">
-              {profile.sharedSplitCount} shared splits
-            </span>
-          )}
-          {profile.friendshipStatus === 'friends' && profile.mutualFriendCount !== undefined && profile.mutualFriendCount > 0 && (
-            <span className="flex items-center gap-1.5">
-              <Users className="w-4 h-4" />
-              {profile.mutualFriendCount} mutual friend{profile.mutualFriendCount !== 1 ? 's' : ''}
-            </span>
-          )}
-        </div>
-
-        {/* ── Gamification Stats ── */}
-        {profile.gamification && (
-          <div className="mb-6 p-5 bg-surface-hover/40 border border-border-subtle rounded-2xl animate-slideDownIn">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted mb-4 flex items-center gap-2">
-              <Trophy className="w-4 h-4 text-primary" /> Gamification Stats
-            </h3>
-            <div className="grid grid-cols-3 gap-3 md:gap-4">
-              <div className="flex flex-col items-center justify-center p-3 bg-surface border border-border-subtle rounded-xl text-center">
-                <Star className="w-5 h-5 text-yellow-500 fill-yellow-500 mb-1" />
-                <span className="font-display font-bold text-base md:text-lg text-foreground">
-                  {profile.gamification.totalPoints.toLocaleString()}
-                </span>
-                <span className="text-[10px] text-muted font-medium">Points</span>
-              </div>
-              <div className="flex flex-col items-center justify-center p-3 bg-surface border border-border-subtle rounded-xl text-center">
-                <Flame className="w-5 h-5 text-orange-500 fill-orange-500/10 mb-1" />
-                <span className="font-display font-bold text-base md:text-lg text-foreground">
-                  {profile.gamification.currentStreak}d
-                </span>
-                <span className="text-[10px] text-muted font-medium">Streak</span>
-              </div>
-              <div className="flex flex-col items-center justify-center p-3 bg-surface border border-border-subtle rounded-xl text-center">
-                <Award className="w-5 h-5 text-purple-500 mb-1" />
-                <span className="font-display font-bold text-base md:text-lg text-foreground">
-                  {profile.gamification.badgeCount}
-                </span>
-                <span className="text-[10px] text-muted font-medium">Badges</span>
-              </div>
+      ) : (
+        profile && (
+          <article className="bg-surface border border-border rounded-lg overflow-hidden transition-all duration-200">
+            {/* Hero Banner */}
+            <div className="relative h-[100px] sm:h-[120px] bg-gradient-to-br from-surface-hover to-border/40 dark:from-indigo-950/70 dark:via-[#131130] dark:to-purple-950/70 overflow-hidden border-b border-border/20">
+              {/* Ambient Radial Glow */}
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.08),transparent_70%)]" />
+              {/* Geometric grid pattern */}
+              <svg className="absolute inset-0 w-full h-full text-primary/[0.03] dark:text-indigo-500/[0.04]" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+                <defs>
+                  <pattern id="profile-hero-lattice" width="20" height="20" patternUnits="userSpaceOnUse">
+                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="currentColor" strokeWidth="0.5"/>
+                  </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#profile-hero-lattice)" />
+              </svg>
             </div>
 
-            {profile.gamification.recentBadges.length > 0 && (
-              <div className="mt-4 pt-4 border-t border-border-subtle">
-                <h4 className="text-[11px] font-semibold text-muted mb-2 uppercase tracking-wide">Recent Badges</h4>
-                <div className="flex flex-wrap gap-2">
-                  {profile.gamification.recentBadges.map((badge) => (
-                    <span 
-                      key={badge.id}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 bg-surface border border-border-subtle rounded-full text-xs font-semibold text-foreground shadow-sm hover:scale-[1.02] transition-transform"
-                    >
-                      <span className="text-sm">🏅</span>
-                      {badge.name}
-                    </span>
-                  ))}
-                </div>
+            {/* Profile Details Container */}
+            <div className="px-6 pb-8 relative flex flex-col items-center">
+              {/* Avatar with Custom Frame Ring */}
+              <div className="relative -mt-[64px] mb-4">
+                {profile.gamification?.activeFrame?.cssClass ? (
+                  <Avatar
+                    src={profile.avatarUrl}
+                    name={profile.displayName || profile.email}
+                    size="2xl"
+                    className="!rounded-full border-[3px] border-surface"
+                    frameClass={profile.gamification.activeFrame.cssClass}
+                  />
+                ) : (
+                  <div className="rounded-full border-2 border-primary/20 p-[3px]">
+                    <Avatar
+                      src={profile.avatarUrl}
+                      name={profile.displayName || profile.email}
+                      size="2xl"
+                      className="!rounded-full border-[3px] border-surface"
+                    />
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        )}
 
-        <div className="divider mb-6" />
+              {/* User Identity */}
+              <h1 className="font-display font-bold text-[28px] text-foreground mb-1 text-center break-words max-w-full px-4">
+                {profile.displayName || profile.username || 'Unnamed User'}
+              </h1>
+              
+              {profile.username && (
+                <p className="font-sans font-semibold text-[16px] text-primary mb-3 break-all max-w-xs text-center mx-auto">
+                  @{profile.username}
+                </p>
+              )}
+              
+              {profile.bio && (
+                <p className="font-sans text-[15px] text-muted text-center max-w-sm mb-6 leading-relaxed break-words px-2">
+                  {profile.bio}
+                </p>
+              )}
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-3">
-          {renderActionButton()}
+              {/* Meta Info Row */}
+              <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-3 mb-6 text-sm text-muted">
+                {profile.location && (
+                  <div className="flex items-center gap-1.5 text-muted">
+                    <MapPin className="w-4.5 h-4.5 text-primary" />
+                    <span className="font-sans font-medium">{profile.location}</span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5 text-muted">
+                  <Calendar className="w-4.5 h-4.5 text-primary" />
+                  <span className="font-sans font-medium">
+                    Joined {new Date(profile.createdAt).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'long',
+                    })}
+                  </span>
+                </div>
+                {profile.friendshipStatus === 'friends' && profile.mutualFriendCount !== undefined && profile.mutualFriendCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-primary font-bold">
+                    <Users className="w-4.5 h-4.5" />
+                    <span className="font-sans">{profile.mutualFriendCount} mutual friend{profile.mutualFriendCount !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+                {profile.friendshipStatus === 'friends' && profile.sharedSplitCount !== undefined && (
+                  <div className="flex items-center gap-1.5 text-primary font-bold">
+                    <Receipt className="w-4.5 h-4.5" />
+                    <span className="font-sans">{profile.sharedSplitCount} shared split{profile.sharedSplitCount !== 1 ? 's' : ''}</span>
+                  </div>
+                )}
+              </div>
 
-          {profile.friendshipStatus === 'self' && (
-            <Button
-              onClick={handleShowQR}
-              variant="ghost"
-              size="md"
-              id="profile-qr-toggle"
-            >
-              {showQR ? 'Hide QR Code' : 'Show QR Code'}
-            </Button>
-          )}
+              {/* ── Restructured Actions Row (Moved above Gamification) ── */}
+              <div className="w-full max-w-md flex flex-col sm:flex-row justify-center items-center gap-3 mb-8 px-4">
+                {/* Primary Action Button */}
+                <div className="w-full sm:w-auto flex justify-center">
+                  {renderActionButton()}
+                </div>
 
-          {profile.friendshipStatus !== 'self' && (
-            <>
-              <Button
-                onClick={handleReportUser}
-                variant="ghost"
-                size="md"
-                disabled={actionLoading}
-                className="text-muted hover:text-error hover:bg-error/10"
-              >
-                <ShieldAlert className="w-4 h-4 mr-2" />
-                Report
-              </Button>
-              <Button
-                onClick={handleBlockUser}
-                variant="ghost"
-                size="md"
-                disabled={actionLoading}
-                className="text-muted hover:text-error hover:bg-error/10"
-              >
-                <Ban className="w-4 h-4 mr-2" />
-                Block
-              </Button>
-            </>
-          )}
-        </div>
+                {/* QR Code toggle for self */}
+                {profile.friendshipStatus === 'self' && (
+                  <div className="w-full sm:w-auto flex justify-center">
+                    <Button
+                      onClick={handleShowQR}
+                      variant="outline"
+                      size="md"
+                      id="profile-qr-toggle"
+                      className="w-full sm:w-auto rounded-xl font-sans"
+                    >
+                      {showQR ? 'Hide QR Code' : 'Show QR Code'}
+                    </Button>
+                  </div>
+                )}
 
-        {/* QR Code Display */}
-        {showQR && qrDataUrl && (
-          <div className="mt-6 p-6 bg-background rounded-xl border border-border-subtle text-center animate-slideDownIn">
-            <p className="text-sm text-muted mb-4">
-              Scan to view your profile and send a friend request
+                {/* Administrative / Secondary Actions (Report & Block) */}
+                {profile.friendshipStatus !== 'self' && (
+                  <div className="flex items-center gap-3 w-full sm:w-auto justify-center">
+                    <button
+                      onClick={handleReportUser}
+                      disabled={actionLoading}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm font-bold text-muted hover:text-foreground hover:bg-surface-hover/50 btn-press cursor-pointer min-h-[44px] focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                      title="Report Profile"
+                    >
+                      <Flag className="w-4 h-4" />
+                      <span>Report</span>
+                    </button>
+                    <button
+                      onClick={handleBlockUser}
+                      disabled={actionLoading}
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm font-bold text-muted hover:text-error hover:bg-error/5 btn-press cursor-pointer min-h-[44px] focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+                      title="Block User"
+                    >
+                      <Ban className="w-4 h-4" />
+                      <span>Block</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Gamification Stats Section ── */}
+              {profile.gamification && (
+                <section className="w-full bg-surface-hover/40 rounded-lg p-5 border border-border mb-2 transition-all duration-300">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Trophy className="w-4.5 h-4.5 text-primary fill-primary/10" />
+                    <h2 className="font-display font-bold text-[11px] uppercase tracking-widest text-muted">
+                      GAMIFICATION STATS
+                    </h2>
+                  </div>
+                  
+                  <div className="grid grid-cols-3 divide-x divide-border">
+                    {/* Points */}
+                    <div
+                      style={{ animationDelay: '80ms' }}
+                      className="stagger-item flex flex-col items-center justify-center p-2 text-center cursor-default transition-transform duration-200 md:hover:scale-[1.02]"
+                    >
+                      <div className="flex items-center gap-1 mb-1">
+                        <Star className="w-5 h-5 text-yellow-500 fill-yellow-500 dark:text-yellow-400 dark:fill-yellow-400" />
+                        <span className="font-mono font-bold text-lg text-foreground tracking-tight">
+                          {profile.gamification.totalPoints.toLocaleString()}
+                        </span>
+                      </div>
+                      <span className="font-sans font-semibold text-[11px] text-muted uppercase tracking-wider">Points</span>
+                    </div>
+                    
+                    {/* Streak */}
+                    <div
+                      style={{ animationDelay: '140ms' }}
+                      className="stagger-item flex flex-col items-center justify-center p-2 text-center cursor-default transition-transform duration-200 md:hover:scale-[1.02]"
+                    >
+                      <div className="flex items-center gap-1 mb-1">
+                        <Flame className="w-5 h-5 text-streak fill-streak" />
+                        <span className="font-mono font-bold text-lg text-foreground tracking-tight">
+                          {profile.gamification.currentStreak}d
+                        </span>
+                      </div>
+                      <span className="font-sans font-semibold text-[11px] text-muted uppercase tracking-wider">Streak</span>
+                    </div>
+                    
+                    {/* Badges */}
+                    <div
+                      style={{ animationDelay: '200ms' }}
+                      className="stagger-item flex flex-col items-center justify-center p-2 text-center cursor-default transition-transform duration-200 md:hover:scale-[1.02]"
+                    >
+                      <div className="flex items-center gap-1 mb-1">
+                        <Award className="w-5 h-5 text-primary fill-primary/10" />
+                        <span className="font-mono font-bold text-lg text-foreground tracking-tight">
+                          {profile.gamification.badgeCount}
+                        </span>
+                      </div>
+                      <span className="font-sans font-semibold text-[11px] text-muted uppercase tracking-wider">Badges</span>
+                    </div>
+                  </div>
+
+                  {profile.gamification.recentBadges.length > 0 && (
+                    <div className="mt-5 pt-4 border-t border-border">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Award className="w-4.5 h-4.5 text-sky-500 fill-sky-500/10" />
+                        <h3 className="font-display font-bold text-[11px] uppercase tracking-widest text-muted">
+                          RECENT ACHIEVEMENTS
+                        </h3>
+                      </div>
+                      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 -mx-2 px-2">
+                        {profile.gamification.recentBadges.map((badge, idx) => {
+                          const IconComponent = badgeIconMap[badge.slug] || Award;
+                          const colorClass = getIconColorClass(badge.rarity);
+                          return (
+                            <div
+                              key={badge.id}
+                              style={{ animationDelay: `${260 + idx * 45}ms` }}
+                              className="stagger-item flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 bg-surface border border-border rounded-full text-xs font-semibold text-foreground shadow-sm transition-transform duration-200 md:hover:scale-[1.02]"
+                            >
+                              <IconComponent className={`w-4 h-4 shrink-0 ${colorClass}`} />
+                              <span className="font-sans font-bold text-foreground">{badge.name}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+            </div>
+          </article>
+        )
+      )}
+
+      {/* ── Centered QR Code Modal (Decision 4) ── */}
+      {showQR && qrDataUrl && profile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 modal-backdrop">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="qr-dialog-title"
+            className="w-full max-w-sm bg-surface rounded-[var(--radius-lg)] shadow-xl p-6 modal-content text-center relative border border-border/10"
+          >
+            <h2 id="qr-dialog-title" className="font-display text-xl font-bold text-foreground mb-2">Profile QR Code</h2>
+            <p className="font-sans text-sm text-muted mb-6">
+              Scan to view @{profile.username}'s profile and connect
             </p>
-            <img
-              src={qrDataUrl}
-              alt="Profile QR Code"
-              className="mx-auto rounded-lg"
-              style={{ width: 200, height: 200 }}
-            />
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(
-                  `${window.location.origin}/profile/${profile.username}?action=add-friend`
-                );
-              }}
-              className="mt-4 text-sm text-primary hover:text-primary/80 font-medium transition-colors cursor-pointer"
-            >
-              Copy Profile Link
-            </button>
+            
+            <div className="bg-white p-4 inline-block rounded-2xl shadow-sm mb-6 border border-border/10">
+              <img
+                src={qrDataUrl}
+                alt="Profile QR Code"
+                className="mx-auto"
+                style={{ width: 180, height: 180 }}
+              />
+            </div>
+            
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `${window.location.origin}/profile/${profile.username}?action=add-friend`
+                  );
+                  setDialogConfig({
+                    isOpen: true,
+                    title: 'Link Copied',
+                    message: 'Profile link copied to clipboard.',
+                    type: 'alert',
+                    confirmLabel: 'OK',
+                    onConfirm: () => {},
+                  });
+                }}
+                className="w-full py-2.5 rounded-xl font-sans text-sm text-primary hover:text-primary-hover font-bold transition-colors cursor-pointer border border-border hover:bg-surface-hover/30 min-h-[44px]"
+              >
+                Copy Profile Link
+              </button>
+              
+              <Button
+                onClick={() => setShowQR(false)}
+                variant="primary"
+                className="w-full rounded-xl"
+              >
+                Close
+              </Button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Global Custom dialog rendering */}
+      {dialogConfig && (
+        <ConfirmDialog
+          isOpen={dialogConfig.isOpen}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmLabel={dialogConfig.confirmLabel}
+          cancelLabel={dialogConfig.cancelLabel}
+          variant={dialogConfig.variant}
+          type={dialogConfig.type}
+          inputPlaceholder={dialogConfig.inputPlaceholder}
+          onConfirm={(val) => {
+            dialogConfig.onConfirm(val);
+            setDialogConfig(null);
+          }}
+          onCancel={() => setDialogConfig(null)}
+        />
+      )}
     </div>
   );
 };

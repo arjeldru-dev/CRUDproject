@@ -9,7 +9,7 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 
 /**
  * Reusable input with label and error display.
- * Soft geometry styling with rounded corners and subtle borders.
+ * Consistent 48px height, 8px radius, single focus ring.
  */
 const Input: React.FC<InputProps> = ({
   label,
@@ -20,43 +20,42 @@ const Input: React.FC<InputProps> = ({
   className = '',
   ...props
 }) => {
-  // Generate stable id from label if not provided
   const inputId = id || label.toLowerCase().replace(/\s+/g, '-');
 
   return (
     <div className="flex flex-col gap-1.5">
       <label
         htmlFor={inputId}
-        className={`text-sm font-medium text-muted tracking-wide ${hideLabel ? 'sr-only' : ''}`}
+        className={`text-xs font-semibold text-muted uppercase tracking-wider ${hideLabel ? 'sr-only' : ''}`}
       >
         {label}
       </label>
       <div className="relative">
         {leftIcon && (
-          <div className="absolute inset-y-0 left-0 flex items-center pl-4 pointer-events-none text-muted">
+          <div className="absolute inset-y-0 left-0 flex items-center pl-3.5 pointer-events-none text-muted">
             {leftIcon}
           </div>
         )}
         <input
           id={inputId}
           className={`
-            w-full py-3.5 pr-4 rounded-xl
-            bg-surface border border-border-subtle text-foreground placeholder-muted/60 font-medium
-            transition-all duration-200 ease-out
-            focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10
+            w-full h-12 pr-4 rounded-lg
+            bg-surface border border-border text-foreground placeholder-muted/50 font-medium text-sm
+            transition-all duration-150
+            focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15
             ${
               error
-                ? 'border-error focus:border-error focus:ring-error/10'
-                : 'hover:border-border'
+                ? 'border-error focus:border-error focus:ring-error/15'
+                : 'hover:border-muted/30'
             }
             ${className}
           `}
-          style={{ paddingLeft: leftIcon ? '3.5rem' : '1.25rem', ...props.style }}
+          style={{ paddingLeft: leftIcon ? '2.75rem' : '0.875rem', ...props.style }}
           {...props}
         />
       </div>
       {error && (
-        <p className="text-xs text-error mt-0.5" role="alert">
+        <p className="text-xs text-error font-medium" role="alert">
           {error}
         </p>
       )}

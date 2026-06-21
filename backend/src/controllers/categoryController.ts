@@ -98,3 +98,36 @@ export const updateCategory = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+/**
+ * DELETE /api/categories/:id
+ * Deletes a category belonging to the authenticated user.
+ */
+export const deleteCategory = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Check if category exists
+    const existingCategory = await prisma.category.findUnique({
+      where: { id },
+    });
+
+    if (!existingCategory) {
+      return res.status(404).json({ error: 'Category not found' });
+    }
+
+    // Verify ownership
+    if (existingCategory.userId !== req.user.id) {
+      return res.status(403).json({ error: 'Forbidden: You do not own this category' });
+    }
+
+    await prisma.category.delete({
+      where: { id },
+    });
+
+    return res.status(200).json({ message: 'Category deleted successfully' });
+  } catch (error) {
+    console.error('Delete category error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};

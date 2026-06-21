@@ -320,6 +320,7 @@ export const getPublicProfile = async (req: Request, res: Response) => {
               slug: true,
               name: true,
               iconUrl: true,
+              rarity: true,
             },
           },
         },

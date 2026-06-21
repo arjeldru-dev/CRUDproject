@@ -8,4 +8,10 @@ export default defineConfig({
     tailwindcss(),
     react(),
   ],
+  server: {
+    host: true,
+    watch: {
+      usePolling: true,
+    },
+  },
 })

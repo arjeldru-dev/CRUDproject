@@ -1,6 +1,20 @@
 import { create } from 'zustand';
 import api from '../lib/api';
 
+export interface NotificationData {
+  postId?: string;
+  commentId?: string;
+  amount?: number;
+  badgeName?: string;
+  badgeSlug?: string;
+  streakDays?: number;
+  challengeName?: string;
+  challengeId?: string;
+  message?: string;
+  payerName?: string;
+  emoji?: string;
+}
+
 export interface AppNotification {
   id: string;
   recipientId: string;
@@ -11,7 +25,7 @@ export interface AppNotification {
     avatarUrl: string | null;
   } | null;
   type: string;
-  data: any;
+  data: NotificationData | null;
   read: boolean;
   createdAt: string;
 }
@@ -54,8 +68,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         nextCursor,
         loading: false,
       }));
-    } catch (err: any) {
-      set({ error: err.response?.data?.error || 'Failed to fetch notifications', loading: false });
+    } catch (err: unknown) {
+      const error = err as any;
+      set({ error: error.response?.data?.error || 'Failed to fetch notifications', loading: false });
     }
   },
 
@@ -101,13 +116,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
     }
 
     try {
-      // 1. Register Service Worker
-      const registration = await navigator.serviceWorker.register('/sw.js');
-      
-      // 2. Wait for it to be ready
-      await navigator.serviceWorker.ready;
-
-      // 3. Get public VAPID key from backend
+      // 1. Get public VAPID key from backend
       const response = await api.get('/notifications/vapid-key');
       const publicVapidKey = response.data.publicKey;
 
@@ -115,6 +124,12 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         console.warn('VAPID public key is not configured on the backend. Skipping push subscription.');
         return;
       }
+
+      // 2. Register Service Worker
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      
+      // 3. Wait for it to be ready
+      await navigator.serviceWorker.ready;
 
       // 4. Subscribe user
       const subscription = await registration.pushManager.subscribe({
@@ -124,8 +139,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
 
       // 5. Send subscription to backend
       await api.post('/notifications/push-subscribe', { subscription });
-      console.log('Push notification subscription successful');
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to subscribe to push notifications', err);
     }
   },

@@ -5,7 +5,7 @@ import { prisma } from '../config/db';
 
 export const register = async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, username: inputUsername } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
@@ -24,16 +24,33 @@ export const register = async (req: Request, res: Response) => {
     const saltRounds = 10;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Auto-generate username from email prefix
-    const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 26);
-    let username = emailPrefix.length >= 3 ? emailPrefix : emailPrefix + '___'.slice(0, 3 - emailPrefix.length);
+    let username = '';
 
-    // Check if username is taken; if so, append random 4-digit suffix
-    const usernameExists = await prisma.user.findFirst({
-      where: { username: { equals: username, mode: 'insensitive' } },
-    });
-    if (usernameExists) {
-      username = `${emailPrefix.slice(0, 26)}${Math.floor(1000 + Math.random() * 9000)}`;
+    // If an input username is provided, sanitize and check if it is taken
+    if (inputUsername && typeof inputUsername === 'string' && inputUsername.trim().length >= 3) {
+      const sanitized = inputUsername.trim().toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 26);
+      
+      const usernameExists = await prisma.user.findFirst({
+        where: { username: { equals: sanitized, mode: 'insensitive' } },
+      });
+      
+      if (usernameExists) {
+        return res.status(400).json({ error: 'Username is already taken' });
+      }
+      
+      username = sanitized;
+    } else {
+      // Auto-generate username from email prefix
+      const emailPrefix = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 26);
+      username = emailPrefix.length >= 3 ? emailPrefix : emailPrefix + '___'.slice(0, 3 - emailPrefix.length);
+
+      // Check if username is taken; if so, append random 4-digit suffix
+      const usernameExists = await prisma.user.findFirst({
+        where: { username: { equals: username, mode: 'insensitive' } },
+      });
+      if (usernameExists) {
+        username = `${emailPrefix.slice(0, 26)}${Math.floor(1000 + Math.random() * 9000)}`;
+      }
     }
 
     // Create user with auto-generated username

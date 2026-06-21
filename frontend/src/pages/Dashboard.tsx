@@ -1,24 +1,26 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
 import { useUiStore } from '../store/uiStore';
 import Button from '../components/ui/Button';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import {
   Wallet,
-  Users,
   TrendingUp,
   Plus,
   ArrowUpRight,
   ArrowDownRight,
   Handshake,
-  Sparkles,
   AlertTriangle,
+  Trophy,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { useGamificationStore } from '../store/gamificationStore';
 import { StreakWidget } from '../components/gamification/StreakWidget';
 import { ActiveChallengeCard } from '../components/gamification/ActiveChallengeCard';
-import { SpendingDonutChart } from '../components/ui/SpendingDonutChart';
-import { NetBalanceGauge } from '../components/ui/NetBalanceGauge';
+import { FinancialOverviewPanel } from '../components/ui/FinancialOverviewPanel';
 import { BudgetForecastBarChart } from '../components/ui/BudgetForecastBarChart';
 
 /** Shape of a balance entry from GET /api/transactions/balances */
@@ -42,11 +44,6 @@ interface BudgetStatus {
   alertText?: string;
 }
 
-/**
- * Dashboard — Phase 7, Step 7.2 + partial Phase 8 preview.
- * Integrates the TransactionForm modal and shows live balance
- * / budget data from the backend.
- */
 interface PendingTransaction {
   id: string;
   creatorId: string;
@@ -71,6 +68,7 @@ const Dashboard: React.FC = () => {
   const { user } = useAuthStore();
   const { openTransactionForm, transactionTimestamp } = useUiStore();
   const { challenges } = useGamificationStore();
+  const navigate = useNavigate();
 
   // ── Data State ────────────────────────────────────────────────────────
   const [balances, setBalances] = useState<Balance[]>([]);
@@ -80,6 +78,16 @@ const Dashboard: React.FC = () => {
   const [resolvingIds, setResolvingIds] = useState<Record<string, boolean>>({});
   const [dataLoading, setDataLoading] = useState(true);
   const [dataError, setDataError] = useState(false);
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    variant?: 'default' | 'danger';
+    type?: 'alert' | 'confirm' | 'prompt';
+    onConfirm: (val?: string) => void;
+  } | null>(null);
 
   // ── Fetch Dashboard Data ──────────────────────────────────────────────
   const fetchDashboardData = useCallback(async () => {
@@ -129,8 +137,15 @@ const Dashboard: React.FC = () => {
       });
       // Success! Refresh dashboard data
       fetchDashboardData();
-    } catch (err: any) {
-      alert(err.response?.data?.error || 'Failed to respond to transaction request');
+    } catch (err: unknown) {
+      const error = err as any;
+      setDialogConfig({
+        isOpen: true,
+        title: 'Error',
+        message: error.response?.data?.error || 'Failed to respond to transaction request',
+        type: 'alert',
+        onConfirm: () => setDialogConfig(null),
+      });
     } finally {
       setResolvingIds(prev => ({ ...prev, [id]: false }));
     }
@@ -150,75 +165,84 @@ const Dashboard: React.FC = () => {
       maximumFractionDigits: 2,
     }).format(n);
 
-  const featureCards = [
-    {
-      icon: Wallet,
-      title: 'Budget Tracker',
-      description: 'Monitor your spending categories and limits in real-time.',
-    },
-    {
-      icon: Users,
-      title: 'Split Expenses',
-      description: 'Track shared costs and settle debts with friends.',
-    },
-    {
-      icon: TrendingUp,
-      title: 'Balance Overview',
-      description: 'See who owes you and what you owe at a glance.',
-    },
-  ];
-
   // ── Derived Data ──────────────────────────────────────────────────────
   const positiveBalances = balances.filter((b) => b.receivableBalance > 0);
   const negativeBalances = balances.filter((b) => b.payableBalance > 0);
 
   return (
-    <div className="animate-fadeInFast">
+    <div className="animate-fadeInFast w-full">
       {/* ── Welcome Header ──────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 mb-1.5 sm:mb-2 lg:mb-3">
         <div>
           <h1 className="text-fluid-h1 text-foreground font-display font-semibold tracking-tight">
             Overview
           </h1>
           <p className="text-muted text-base font-medium mt-1">
-            {user?.email ? `${user.email.split('@')[0]}'s ` : ''}financial activity
+            {user?.displayName || user?.username || 'Your'} Financial Activity
           </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            onClick={() => openTransactionForm('expense')}
-            variant="outline"
-            size="md"
-            id="add-expense-btn"
-            className="flex-1 sm:flex-none"
-          >
-            <Plus className="w-4 h-4" />
-            Log Expense
-          </Button>
-          <Button
-            onClick={() => openTransactionForm('settlement')}
-            size="md"
-            id="add-settlement-btn"
-            className="flex-1 sm:flex-none"
-          >
-            <Handshake className="w-4 h-4" />
-            Settle Balance
-          </Button>
         </div>
       </div>
 
-      <div className="divider mb-8" />
+      {/* ── Mobile Action Buttons ── */}
+      <div className="flex items-center gap-2 w-full lg:hidden">
+        {/* Swapped action weight: Log Expense is now filled primary, Settle is outline */}
+        <Button
+          onClick={() => openTransactionForm('expense')}
+          variant="primary"
+          size="md"
+          id="add-expense-btn"
+          className="flex-1 min-w-0 whitespace-nowrap"
+        >
+          <Plus className="w-4 h-4" aria-hidden="true" />
+          Log Expense
+        </Button>
+        <Button
+          onClick={() => openTransactionForm('settlement')}
+          variant="outline"
+          size="md"
+          id="add-settlement-btn"
+          className="flex-1 min-w-0 whitespace-nowrap"
+        >
+          <Handshake className="w-4 h-4" aria-hidden="true" />
+          Settle Balance
+        </Button>
+      </div>
+
+      {/* Spacing below header/buttons */}
+      <div className="h-1.5 sm:h-2 lg:hidden" aria-hidden="true" />
+
+      {/* ── Global Network Error Indicator Banner ── */}
+      {dataError && (
+        <div className="container-card border-error/30 bg-error/5 p-4.5 mb-2 flex flex-col sm:flex-row items-center justify-between gap-4 animate-slideDownIn shrink-0">
+          <div className="flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 text-error shrink-0" aria-hidden="true" />
+            <div>
+              <h3 className="text-sm font-semibold text-foreground">Failed to sync financial data</h3>
+              <p className="text-xs text-muted mt-0.5">Please check your connection and try again.</p>
+            </div>
+          </div>
+          <Button 
+            size="sm" 
+            variant="outline" 
+            onClick={fetchDashboardData} 
+            className="w-full sm:w-auto text-xs py-1.5 border-error/20 hover:bg-error/5 hover:text-error hover:border-error/30 font-medium shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+            Retry Sync
+          </Button>
+        </div>
+      )}
 
       {/* ── Pending Approvals ─────────────────────────────────────────── */}
       {pendingTransactions.length > 0 && (
-        <div className="mb-8 animate-fadeInFast">
-          <div className="flex items-center gap-2 mb-4">
-            <Sparkles className="w-5 h-5 text-warning" />
-            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
-              Pending Approvals
-            </h2>
-          </div>
-          <div className="flex flex-col gap-4">
+        <>
+          <div className="animate-fadeInFast">
+            <div className="mb-1">
+              <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
+                Pending Approvals
+              </h2>
+            </div>
+            <div className="flex flex-col gap-2.5">
             {pendingTransactions.map((tx) => {
               const creatorName = tx.creator?.displayName || tx.creator?.username || 'Friend';
               const selectedCat = selectedCategories[tx.id] || '';
@@ -250,27 +274,28 @@ const Dashboard: React.FC = () => {
               return (
                 <div
                   key={tx.id}
-                  className="container-card border-warning/30 bg-warning/5 p-6 flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-warning/50 transition-colors duration-300"
+                  className="bg-surface rounded-2xl bg-warning/5 flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6 transition-all duration-200 ease-out animate-slideDownIn"
+                  style={{ padding: '24px' }}
                 >
                   <div className="flex-1">
                     <p className="text-[0.95rem] text-foreground font-medium">
                       {tx.type === 'SETTLEMENT' ? (
                         <>
-                          <span className="font-semibold text-warning">{creatorName}</span> logged a settlement where {tx.payerId === 'self' ? 'they claim to have paid you' : 'they claim you paid them'}.
+                          <span className="font-semibold text-warning">{creatorName}</span> logged a settlement where {tx.payerId === 'self' ? 'they paid you' : 'you paid them'}.
                         </>
                       ) : tx.payerId !== 'self' ? (
                         categoryRequired ? (
                           <>
-                            <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense of <span className="font-semibold">{fmt(Number(tx.amount))}</span> where you paid.
+                            <span className="font-semibold text-warning">{creatorName}</span> requested split verification for <span className="font-semibold">{fmt(Number(tx.amount))}</span> (you paid).
                           </>
                         ) : (
                           <>
-                            <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense of <span className="font-semibold">{fmt(Number(tx.amount))}</span> where a friend paid.
+                            <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense of <span className="font-semibold">{fmt(Number(tx.amount))}</span> (friend paid).
                           </>
                         )
                       ) : (
                         <>
-                          <span className="font-semibold text-warning">{creatorName}</span> logged a shared expense where they paid.
+                          <span className="font-semibold text-warning">{creatorName}</span> requested split verification where they paid.
                         </>
                       )}
                     </p>
@@ -289,7 +314,8 @@ const Dashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row sm:items-end gap-3 shrink-0">
+                  {/* Layout aligned to md:flex-row to prevent text crowding on vertical tablets */}
+                  <div className="flex flex-col md:flex-row md:items-end gap-3 shrink-0">
                     {categoryRequired && (
                       <div className="flex flex-col gap-1.5 min-w-[220px]">
                         <label htmlFor={`category-select-${tx.id}`} className="text-xs text-muted font-semibold tracking-wider uppercase">
@@ -301,9 +327,9 @@ const Dashboard: React.FC = () => {
                           onChange={(e) =>
                             setSelectedCategories((prev) => ({ ...prev, [tx.id]: e.target.value }))
                           }
-                          className="w-full bg-surface border border-border-subtle text-foreground rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer hover:bg-surface-hover transition-colors"
+                          className="w-full bg-surface border border-border text-foreground rounded-xl px-4 py-2.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer hover:bg-surface-hover transition-[background-color,border-color] duration-160 ease-out"
                         >
-                          <option value="">-- Choose Category --</option>
+                          <option value="">Select a budget category</option>
                           {budgetStatuses.map((cat) => (
                             <option key={cat.categoryId} value={cat.categoryId}>
                               {cat.categoryName} ({fmt(cat.remaining)} left)
@@ -319,7 +345,7 @@ const Dashboard: React.FC = () => {
                         isLoading={isResolving}
                         variant="outline"
                         size="md"
-                        className="py-2.5 hover:bg-error/10 hover:text-error hover:border-error/30"
+                        className="px-10 py-2.5 hover:bg-error/10 hover:text-error hover:border-error/30 min-w-[130px] whitespace-nowrap text-center"
                       >
                         Reject
                       </Button>
@@ -329,7 +355,7 @@ const Dashboard: React.FC = () => {
                         isLoading={isResolving}
                         size="md"
                         variant="primary"
-                        className="py-2.5"
+                        className="px-10 py-2.5 min-w-[130px] whitespace-nowrap text-center"
                       >
                         Approve
                       </Button>
@@ -340,25 +366,140 @@ const Dashboard: React.FC = () => {
             })}
           </div>
         </div>
+        <div className="h-1.5 lg:h-2" aria-hidden="true" />
+        </>
       )}
 
-      {/* ── Summary Visualization Grid ──────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
-        <SpendingDonutChart budgetStatuses={budgetStatuses} loading={dataLoading} error={dataError} />
-        <NetBalanceGauge balances={balances} loading={dataLoading} />
-      </div>
+      {/* ── Asymmetric Bento Grid ──────────────────────────────── */}
+      {(() => {
+        const hasActiveChallenge = challenges.some(
+          (c) => c.status === 'ACTIVE' && c.myStatus !== 'pending'
+        );
+        return (
+          <div className="space-y-2 lg:space-y-3 mb-2 lg:mb-3">
+            <div className="animate-slideUpIn" style={{ animationDelay: '0ms' }}>
+              <FinancialOverviewPanel
+                budgetStatuses={budgetStatuses}
+                balances={balances}
+                loading={dataLoading}
+                error={dataError}
+                onRetry={fetchDashboardData}
+                onLogTransaction={() => openTransactionForm('expense')}
+              />
+            </div>
+
+            {/* Row 2: Gamification Widgets & Quick Actions */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-[1px] lg:gap-3 items-stretch">
+              {/* Streak Widget */}
+              <div 
+                className="lg:col-span-4 flex flex-col gap-[1px] animate-slideUpIn"
+                style={{ animationDelay: '120ms' }}
+              >
+                <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
+                  Streak
+                </h2>
+                <StreakWidget />
+              </div>
+              
+              {/* Active Challenge Card or Empty State */}
+              <div 
+                className="lg:col-span-5 flex flex-col gap-[1px] animate-slideUpIn" 
+                style={{ animationDelay: '180ms' }}
+              >
+                <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
+                  Challenges
+                </h2>
+                {hasActiveChallenge ? (
+                  <ActiveChallengeCard />
+                ) : (
+                  <div 
+                    className="bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md flex flex-col justify-between group flex-1 h-full"
+                    style={{ padding: '24px' }}
+                  >
+                    <div>
+                      <div className="flex items-start gap-4">
+                        <div className="w-11 h-11 rounded-xl bg-warning/10 flex items-center justify-center shrink-0 transition-colors duration-200">
+                          <Trophy className="w-5 h-5 text-warning transition-transform duration-300 group-hover:scale-110 group-hover:rotate-[6deg]" aria-hidden="true" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-lg font-display font-semibold text-foreground">
+                            Join a Saving Challenge
+                          </h3>
+                          <p className="text-xs text-muted mt-1 leading-relaxed">
+                            Compete with friends to stay under budget! Reach saving streaks together and unlock exclusive avatar frames.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-6 pt-4 flex items-center justify-between">
+                      <span className="text-xs text-muted font-medium">No Active Challenges</span>
+                      <Button
+                        size="md"
+                        variant="outline"
+                        onClick={() => navigate('/challenges')}
+                        className="px-12 py-2.5 text-center min-w-[210px] whitespace-nowrap"
+                      >
+                        Browse Challenges
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Quick Actions Card (Desktop only) */}
+              <div 
+                className="hidden lg:flex lg:col-span-3 flex-col gap-[1px] animate-slideUpIn"
+                style={{ animationDelay: '240ms' }}
+              >
+                <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
+                  Quick Actions
+                </h2>
+                <div 
+                  className="bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md flex flex-col group flex-1 h-full"
+                  style={{ padding: '24px' }}
+                >
+                  <div className="flex-1 flex flex-col justify-center gap-3">
+                    <Button
+                      onClick={() => openTransactionForm('expense')}
+                      variant="primary"
+                      size="lg"
+                      id="desktop-add-expense-btn"
+                      className="w-full flex items-center justify-center gap-2"
+                    >
+                      <Plus className="w-4 h-4" aria-hidden="true" />
+                      Log Expense
+                    </Button>
+                    <Button
+                      onClick={() => openTransactionForm('settlement')}
+                      variant="outline"
+                      size="lg"
+                      id="desktop-add-settlement-btn"
+                      className="w-full flex items-center justify-center gap-2"
+                    >
+                      <Handshake className="w-4 h-4" aria-hidden="true" />
+                      Settle Balance
+                    </Button>
+                  </div>
+                  <div className="text-[11px] text-muted leading-relaxed select-none mt-6 pt-4 shrink-0">
+                    Log shared expenses or settle outstanding balances directly with friends.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── AI Spending Forecasting ──────────────────────────────────── */}
       {budgetStatuses.length > 0 && budgetStatuses.some(bs => bs.insightText) && (
-        <div className="mb-8">
-          <div className="flex items-center gap-2 mb-5">
-            <Sparkles className="w-5 h-5 text-primary" />
+        <div className="mb-2 lg:mb-3">
+          <div className="mb-1 lg:mb-2">
             <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight">
               Spending Forecast & Insights
             </h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {budgetStatuses.map((bs) => {
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
+            {budgetStatuses.map((bs, i) => {
               if (!bs.insightText) return null;
               
               const isOverBudget = bs.status === 'OVER_BUDGET';
@@ -366,36 +507,35 @@ const Dashboard: React.FC = () => {
               const isNew = bs.status === 'NEW';
               const isSurplus = bs.status === 'SURPLUS';
               
-              let borderColor = 'border-border';
               let iconColor = 'text-primary';
               let bgIconColor = 'bg-primary/10';
               
               if (isOverBudget) {
-                borderColor = 'border-error/50';
                 iconColor = 'text-error';
                 bgIconColor = 'bg-error/10';
               } else if (isAtRisk) {
-                borderColor = 'border-warning/50';
                 iconColor = 'text-warning';
                 bgIconColor = 'bg-warning/10';
               } else if (isSurplus) {
-                borderColor = 'border-success/50';
                 iconColor = 'text-success';
                 bgIconColor = 'bg-success/10';
               } else if (isNew) {
-                borderColor = 'border-border';
                 iconColor = 'text-muted';
                 bgIconColor = 'bg-surface-hover';
               }
 
               return (
-                <div key={`forecast-${bs.categoryId}`} className={`container-card p-5 border ${borderColor} transition-colors`}>
+                <div 
+                  key={`forecast-${bs.categoryId}`} 
+                  className="bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md ease-out animate-slideUpIn"
+                  style={{ padding: '24px', animationDelay: `${i * 40}ms` }}
+                >
                   <div className="flex items-start gap-3">
                     <div className={`w-10 h-10 rounded-xl ${bgIconColor} flex items-center justify-center shrink-0`}>
                       {(isOverBudget || isAtRisk) ? (
-                        <AlertTriangle className={`w-5 h-5 ${iconColor}`} />
+                        <AlertTriangle className={`w-5 h-5 ${iconColor}`} aria-hidden="true" />
                       ) : (
-                        <Sparkles className={`w-5 h-5 ${iconColor}`} />
+                        <TrendingUp className={`w-5 h-5 ${iconColor}`} aria-hidden="true" />
                       )}
                     </div>
                     <div>
@@ -422,28 +562,15 @@ const Dashboard: React.FC = () => {
         </div>
       )}
 
-      {/* ── Gamification Streak & Challenge Widgets ───────────────────── */}
-      {(() => {
-        const hasActiveChallenge = challenges.some(
-          (c) => c.status === 'ACTIVE' && c.myStatus !== 'pending'
-        );
-        return (
-          <div className={`grid grid-cols-1 ${hasActiveChallenge ? 'md:grid-cols-2' : ''} gap-4 mb-8`}>
-            <StreakWidget />
-            <ActiveChallengeCard />
-          </div>
-        );
-      })()}
-
       {/* ── Two-Column Layout for Desktop ────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5 lg:gap-4 mb-2 lg:mb-3">
         {/* ── Budget Status Section ────────────────────────────────────── */}
         {budgetStatuses.length > 0 && (
           <div>
-            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-5">
+            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-1.5 lg:mb-2">
               Budget Status
             </h2>
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2">
               {budgetStatuses.map((bs) => (
                 <BudgetForecastBarChart
                   key={bs.categoryId}
@@ -456,100 +583,145 @@ const Dashboard: React.FC = () => {
                 />
               ))}
             </div>
-        </div>
+          </div>
         )}
 
         {/* ── Balances Section ──────────────────────────────────────────── */}
         {(positiveBalances.length > 0 || negativeBalances.length > 0) && (
           <div>
-            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-5">
+            <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-1.5 lg:mb-2">
               Friend Balances
             </h2>
-            <div className="flex flex-col gap-3">
-            {balances.flatMap((b) => {
-              const items = [];
-              if (b.receivableBalance > 0) {
-                items.push(
-                  <div
-                    key={`${b.friendProfileId}-rec`}
-                    className="container-card container-card-interactive p-4 flex items-center gap-4"
-                  >
-                    <div className="w-10 h-10 flex items-center justify-center shrink-0 rounded-xl bg-success/10 text-success">
-                      <ArrowDownRight className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {b.friendName}
-                      </p>
-                      <p className="text-xs font-medium mt-0.5 text-success">
-                        Owes you +{fmt(b.receivableBalance)}
-                      </p>
-                    </div>
-                  </div>
-                );
-              }
-              if (b.payableBalance > 0) {
-                items.push(
-                  <div
-                    key={`${b.friendProfileId}-pay`}
-                    className="container-card container-card-interactive p-4 flex items-center gap-4"
-                  >
-                    <div className="w-10 h-10 flex items-center justify-center shrink-0 rounded-xl bg-error/10 text-error">
-                      <ArrowUpRight className="w-5 h-5" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {b.friendName}
-                      </p>
-                      <p className="text-xs font-medium mt-0.5 text-error">
-                        You owe -{fmt(b.payableBalance)}
-                      </p>
-                    </div>
-                  </div>
-                );
-              }
-              return items;
-            })}
+            <div 
+              className="bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md"
+              style={{ padding: '24px' }}
+            >
+              <div className="flex flex-col gap-2">
+                {balances.flatMap((b) => {
+                  const items = [];
+                  if (b.receivableBalance > 0) {
+                    items.push(
+                      <div
+                        key={`${b.friendProfileId}-rec`}
+                        className="p-3.5 flex items-center justify-between gap-4 hover:bg-surface-hover/50 rounded-xl transition-all duration-150 ease-out animate-fadeInFast"
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                          <div className="w-10 h-10 flex items-center justify-center shrink-0 rounded-xl bg-success/10 text-success border border-success/15 shadow-sm">
+                            <ArrowDownRight className="w-5 h-5" aria-hidden="true" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-foreground truncate">
+                              {b.friendName}
+                            </p>
+                            <p className="text-xs font-semibold mt-0.5 text-success">
+                              Owes you <span className="font-mono font-bold">+{fmt(b.receivableBalance)}</span>
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setDialogConfig({
+                              isOpen: true,
+                              title: 'Reminder Sent',
+                              message: `Sent a reminder nudge to ${b.friendName}`,
+                              type: 'alert',
+                              onConfirm: () => setDialogConfig(null),
+                            });
+                          }}
+                          className="shrink-0 text-xs px-3 py-1.5 border-border/80 hover:bg-success/5 hover:text-success hover:border-success/30 font-medium"
+                        >
+                          Remind
+                        </Button>
+                      </div>
+                    );
+                  }
+                  if (b.payableBalance > 0) {
+                    items.push(
+                      <div
+                        key={`${b.friendProfileId}-pay`}
+                        className="p-3.5 flex items-center justify-between gap-4 hover:bg-surface-hover/50 rounded-xl transition-all duration-150 ease-out animate-fadeInFast"
+                      >
+                        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                          <div className="w-10 h-10 flex items-center justify-center shrink-0 rounded-xl bg-error/10 text-error border border-error/15 shadow-sm">
+                            <ArrowUpRight className="w-5 h-5" aria-hidden="true" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-foreground truncate">
+                              {b.friendName}
+                            </p>
+                            <p className="text-xs font-semibold mt-0.5 text-error">
+                              You owe <span className="font-mono font-bold">-{fmt(b.payableBalance)}</span>
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          onClick={() => openTransactionForm('settlement')}
+                          className="shrink-0 text-xs px-3 py-1.5 font-medium animate-fadeInFast"
+                        >
+                          Pay Now
+                        </Button>
+                      </div>
+                    );
+                  }
+                  return items;
+                })}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
 
-      {/* ── Feature Cards (Shown when no data) ────────────────────────── */}
+      {/* ── Visual Empty State ── */}
       {balances.length === 0 && budgetStatuses.length === 0 && !dataLoading && (
-        <div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-            {featureCards.map((card) => (
-              <div
-                key={card.title}
-                className="container-card p-6 group"
-              >
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-4 group-hover:bg-primary/15 transition-colors duration-200">
-                  <card.icon className="w-5 h-5 text-primary" />
-                </div>
-                <h3 className="text-base font-display font-semibold text-foreground mb-1.5">
-                  {card.title}
-                </h3>
-                <p className="text-sm text-muted leading-relaxed">
-                  {card.description}
-                </p>
-              </div>
-            ))}
+        <div 
+          className="bg-surface rounded-2xl transition-all duration-200 shadow-sm max-w-2xl mx-auto border border-border/70 animate-slideUpIn text-center"
+          style={{ padding: '48px 24px' }}
+        >
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-6">
+            <Wallet className="w-6 h-6 text-primary" aria-hidden="true" />
           </div>
-          <div className="container-subtle text-center py-12 px-6 rounded-2xl">
-            <p className="text-muted text-sm font-medium mb-5">
-              No history yet. Log an expense or create a budget to get started.
-            </p>
+          <h2 className="text-xl font-display font-semibold text-foreground tracking-tight mb-2">
+            Start your saving journey
+          </h2>
+          <p className="text-muted text-sm leading-relaxed max-w-md mx-auto mb-8">
+            No transactions or budgets found. Log your first expense or set up a category budget to start tracking your financial activity and streak progress.
+          </p>
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-3">
             <Button
-              onClick={() => openTransactionForm()}
-              size="lg"
+              onClick={() => openTransactionForm('expense')}
+              size="md"
               id="add-transaction-empty"
             >
-              <Plus className="w-4 h-4" />
-              Log First Transaction
+              <Plus className="w-4 h-4" aria-hidden="true" />
+              Log First Expense
+            </Button>
+            <Button
+              onClick={() => navigate('/categories')}
+              variant="outline"
+              size="md"
+            >
+              <Wallet className="w-4 h-4" aria-hidden="true" />
+              Set Up Budgets
             </Button>
           </div>
         </div>
+      )}
+      {dialogConfig && (
+        <ConfirmDialog
+          isOpen={dialogConfig.isOpen}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmLabel={dialogConfig.confirmLabel}
+          cancelLabel={dialogConfig.cancelLabel}
+          variant={dialogConfig.variant}
+          type={dialogConfig.type}
+          onConfirm={dialogConfig.onConfirm}
+          onCancel={() => setDialogConfig(null)}
+        />
       )}
     </div>
   );

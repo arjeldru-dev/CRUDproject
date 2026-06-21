@@ -2,14 +2,14 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import { useAuthStore } from '../store/authStore';
-import Button from '../components/ui/Button';
-import Input from '../components/ui/Input';
 import Avatar from '../components/ui/Avatar';
 import {
   Users, Search, AlertCircle, UserPlus, Clock, Send,
-  Check, X, Ghost, ChevronDown, ChevronUp, QrCode, Mail, Link2, Trash2, Trophy,
+  Check, X, Ghost, ChevronDown, ChevronUp, QrCode, Mail, Trash2, Trophy,
 } from 'lucide-react';
 import Leaderboard from '../components/gamification/Leaderboard';
+import { useFocusTrap } from '../hooks/useFocusTrap';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 
 // ── Types ─────────────────────────────────────────────────────────────
 interface FriendListItem {
@@ -18,6 +18,7 @@ interface FriendListItem {
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  activeFrame?: { cssClass: string } | null;
   netBalance: number;
   createdAt: string;
 }
@@ -26,8 +27,18 @@ interface FriendRequestItem {
   id: string;
   senderId: string;
   receiverId: string;
-  senderProfile?: { username: string | null; displayName: string | null; avatarUrl: string | null };
-  receiverProfile?: { username: string | null; displayName: string | null; avatarUrl: string | null };
+  senderProfile?: {
+    username: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    activeFrame?: { cssClass: string } | null;
+  };
+  receiverProfile?: {
+    username: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    activeFrame?: { cssClass: string } | null;
+  };
   status: string;
   createdAt: string;
 }
@@ -37,6 +48,7 @@ interface UserSearchResult {
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
+  activeFrame?: { cssClass: string } | null;
   relationshipStatus: 'none' | 'pending_sent' | 'pending_received' | 'friends';
 }
 
@@ -61,27 +73,23 @@ const TABS: { key: TabKey; label: string; icon: React.ElementType }[] = [
   { key: 'leaderboard', label: 'Leaderboard', icon: Trophy },
 ];
 
-const FriendBalance: React.FC<{ netBalance: number }> = ({ netBalance }) => {
-  return (
-    <div className="text-right shrink-0">
-      <p className={`text-sm font-bold ${
-        netBalance > 0 ? 'text-success' : netBalance < 0 ? 'text-error' : 'text-muted'
-      }`}>
-        {netBalance > 0 ? '+' : ''}
-        {netBalance !== 0 ? `₱${Math.abs(netBalance).toLocaleString('en-PH', { minimumFractionDigits: 2 })}` : '—'}
-      </p>
-      <p className="text-[10px] text-muted mt-0.5">
-        {netBalance > 0 ? 'owes you' : netBalance < 0 ? 'you owe' : 'settled'}
-      </p>
-    </div>
-  );
-};
-
 // ── Main Component ────────────────────────────────────────────────────
 const Friends: React.FC = () => {
   const { user } = useAuthStore();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') as TabKey | null;
+
+  // Dialog configuration for custom alerts/confirms
+  const [dialogConfig, setDialogConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    variant?: 'default' | 'danger';
+    type?: 'alert' | 'confirm' | 'prompt';
+    onConfirm: (val?: string) => void;
+  } | null>(null);
 
   const [activeTab, setActiveTab] = useState<TabKey>(
     isValidTab(tabParam) ? tabParam : 'friends'
@@ -112,6 +120,7 @@ const Friends: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
 
   // Ghost profiles
@@ -122,6 +131,10 @@ const Friends: React.FC = () => {
   const [ghostToLink, setGhostToLink] = useState<GhostProfile | null>(null);
   const [ghostLinkQuery, setGhostLinkQuery] = useState('');
   const [ghostLinkResults, setGhostLinkResults] = useState<UserSearchResult[]>([]);
+  const ghostLinkTrapRef = useFocusTrap(!!ghostToLink, () => {
+    setGhostToLink(null);
+    setGhostLinkQuery('');
+  });
   const ghostSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Action loading states
@@ -187,21 +200,54 @@ const Friends: React.FC = () => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (searchQuery.trim().length < 2) {
       setSearchResults([]);
+      setSearchError('');
       return;
     }
+    const controller = new AbortController();
     setSearching(true);
+    setSearchError('');
     searchTimer.current = setTimeout(async () => {
       try {
-        const res = await api.get(`/friends/search?q=${encodeURIComponent(searchQuery.trim())}`);
+        const res = await api.get(`/friends/search?q=${encodeURIComponent(searchQuery.trim())}`, {
+          signal: controller.signal,
+        });
         setSearchResults(res.data.results);
-      } catch {
-        setSearchResults([]);
+        setSearchError('');
+      } catch (err: unknown) {
+        const error = err as any;
+        if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
+          setSearchResults([]);
+          setSearchError(error.response?.data?.error || 'Search failed due to a network or server error.');
+        }
       } finally {
         setSearching(false);
       }
     }, 300);
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+      controller.abort();
+    };
   }, [searchQuery]);
+
+  const handleSearchRetry = () => {
+    if (searchQuery.trim().length < 2) return;
+    setSearching(true);
+    setSearchError('');
+    api.get(`/friends/search?q=${encodeURIComponent(searchQuery.trim())}`)
+      .then((res) => {
+        setSearchResults(res.data.results);
+        setSearchError('');
+      })
+      .catch((err) => {
+        if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
+          setSearchResults([]);
+          setSearchError(err.response?.data?.error || 'Search failed due to a network or server error.');
+        }
+      })
+      .finally(() => {
+        setSearching(false);
+      });
+  };
 
   // ── Ghost Link Search ─────────────────────────────────────────────
   useEffect(() => {
@@ -210,15 +256,24 @@ const Friends: React.FC = () => {
       setGhostLinkResults([]);
       return;
     }
+    const controller = new AbortController();
     ghostSearchTimer.current = setTimeout(async () => {
       try {
-        const res = await api.get(`/friends/search?q=${encodeURIComponent(ghostLinkQuery.trim())}`);
+        const res = await api.get(`/friends/search?q=${encodeURIComponent(ghostLinkQuery.trim())}`, {
+          signal: controller.signal,
+        });
         setGhostLinkResults(res.data.results);
-      } catch {
-        setGhostLinkResults([]);
+      } catch (err: unknown) {
+        const error = err as any;
+        if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
+          setGhostLinkResults([]);
+        }
       }
     }, 300);
-    return () => { if (ghostSearchTimer.current) clearTimeout(ghostSearchTimer.current); };
+    return () => {
+      if (ghostSearchTimer.current) clearTimeout(ghostSearchTimer.current);
+      controller.abort();
+    };
   }, [ghostLinkQuery]);
 
   // ── Actions ───────────────────────────────────────────────────────
@@ -268,14 +323,23 @@ const Friends: React.FC = () => {
     finally { setLoading(requestId, false); }
   };
 
-  const handleRemoveFriend = async (friendshipId: string) => {
-    if (!confirm('Remove this friend? Historical ledger data will be preserved.')) return;
-    setLoading(friendshipId, true);
-    try {
-      await api.delete(`/friends/${friendshipId}`);
-      setFriends((prev) => prev.filter((f) => f.friendshipId !== friendshipId));
-    } catch { /* noop */ }
-    finally { setLoading(friendshipId, false); }
+  const handleRemoveFriend = (friendshipId: string) => {
+    setDialogConfig({
+      isOpen: true,
+      title: 'Remove Friend',
+      message: 'Remove this friend? Historical ledger data will be preserved.',
+      confirmLabel: 'Remove',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        setLoading(friendshipId, true);
+        try {
+          await api.delete(`/friends/${friendshipId}`);
+          setFriends((prev) => prev.filter((f) => f.friendshipId !== friendshipId));
+        } catch { /* noop */ }
+        finally { setLoading(friendshipId, false); }
+      },
+    });
   };
 
   const handleLinkGhost = async (realUserId: string) => {
@@ -288,36 +352,74 @@ const Friends: React.FC = () => {
       setGhostToLink(null);
       setGhostLinkQuery('');
     } catch {
-      alert('Failed to link ghost profile');
+      setDialogConfig({
+        isOpen: true,
+        title: 'Linking Failed',
+        message: 'Failed to link ghost profile',
+        type: 'alert',
+        confirmLabel: 'OK',
+        onConfirm: () => {},
+      });
     } finally {
       setLoading(`link-${ghostToLink.id}`, false);
     }
   };
 
   const handleInvite = async () => {
-    if (!inviteEmail.trim() || !inviteEmail.includes('@')) return;
+    const trimmed = inviteEmail.trim();
+    if (!trimmed) {
+      setInviteStatus('Email is required.');
+      return;
+    }
+    if (trimmed.length > 120) {
+      setInviteStatus('Email must be 120 characters or less.');
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmed)) {
+      setInviteStatus('Please enter a valid email address.');
+      return;
+    }
     try {
-      await api.post('/friends/invite', { email: inviteEmail.trim() });
+      setInviteStatus('Sending invite...');
+      await api.post('/friends/invite', { email: trimmed });
       setInviteStatus('Invitation logged!');
       setInviteEmail('');
       setTimeout(() => setInviteStatus(''), 3000);
-    } catch {
-      setInviteStatus('Failed to send invite.');
+    } catch (err: unknown) {
+      const error = err as any;
+      setInviteStatus(error.response?.data?.error || 'Failed to send invite.');
     }
   };
 
-  const handleDeleteGhost = async (ghostId: string) => {
-    if (!confirm('Are you sure you want to delete this ghost profile? Any associated ledger entries will lose this connection.')) return;
-    setLoading(`delete-${ghostId}`, true);
-    try {
-      await api.delete(`/friends/ghost/${ghostId}`);
-      setGhosts((prev) => prev.filter((g) => g.id !== ghostId));
-      fetchFriends();
-    } catch {
-      alert('Failed to delete ghost profile. It might be linked to existing data.');
-    } finally {
-      setLoading(`delete-${ghostId}`, false);
-    }
+  const handleDeleteGhost = (ghostId: string) => {
+    setDialogConfig({
+      isOpen: true,
+      title: 'Delete Ghost Profile',
+      message: 'Are you sure you want to delete this ghost profile? Any associated ledger entries will lose this connection.',
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+      onConfirm: async () => {
+        setLoading(`delete-${ghostId}`, true);
+        try {
+          await api.delete(`/friends/ghost/${ghostId}`);
+          setGhosts((prev) => prev.filter((g) => g.id !== ghostId));
+          fetchFriends();
+        } catch {
+          setDialogConfig({
+            isOpen: true,
+            title: 'Deletion Failed',
+            message: 'Failed to delete ghost profile. It might be linked to existing data.',
+            type: 'alert',
+            confirmLabel: 'OK',
+            onConfirm: () => {},
+          });
+        } finally {
+          setLoading(`delete-${ghostId}`, false);
+        }
+      },
+    });
   };
 
   const requestCount = received.length + sent.length;
@@ -326,11 +428,11 @@ const Friends: React.FC = () => {
   if (friendsLoading && requestsLoading) {
     return (
       <div className="animate-fadeInFast">
-        <div className="h-9 w-48 bg-surface-hover rounded-lg animate-pulse mb-2" />
-        <div className="h-4 w-72 bg-surface rounded-lg animate-pulse mb-8" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="h-9 w-48 bg-surface-hover rounded-[var(--radius-lg)] animate-pulse mb-2" />
+        <div className="h-4 w-72 bg-surface rounded-[var(--radius-lg)] animate-pulse mb-8" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-24 bg-surface rounded-xl animate-pulse" />
+            <div key={i} className="h-24 bg-surface rounded-[var(--radius-lg)] animate-pulse" />
           ))}
         </div>
       </div>
@@ -338,179 +440,306 @@ const Friends: React.FC = () => {
   }
 
   return (
-    <div className="animate-fadeInFast">
+    <div className="animate-fadeInFast w-full flex flex-col gap-2">
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-fluid-h1 font-display font-semibold text-foreground tracking-tight">
+      <div>
+        <h1 className="font-display text-fluid-h1 font-bold tracking-tight text-foreground">
           Friends
         </h1>
-        <p className="text-muted text-base font-medium mt-1">
+        <p className="text-muted text-sm mt-1">
           Connect with people you split expenses with
         </p>
       </div>
 
-      <div className="divider mb-6" />
-
-      {/* Tab Bar */}
-      <div className="flex gap-1 mb-8 p-1 bg-surface rounded-xl border border-border-subtle" role="tablist" aria-label="Friends tabs">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => handleTabChange(tab.key)}
-            id={`tab-${tab.key}`}
-            role="tab"
-            aria-selected={activeTab === tab.key}
-            aria-controls={`panel-${tab.key}`}
-            className={`
-              flex-1 flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold rounded-lg
-              transition-all duration-200 cursor-pointer relative
-              ${activeTab === tab.key
-                ? 'bg-primary text-white shadow-sm'
-                : 'text-muted hover:text-foreground hover:bg-surface-hover'
-              }
-            `}
-          >
-            <tab.icon className="w-4 h-4" />
-            {tab.label}
-            {tab.key === 'requests' && requestCount > 0 && (
-              <span className={`
-                min-w-[20px] h-5 px-1.5 rounded-full text-xs font-bold flex items-center justify-center
-                ${activeTab === 'requests' ? 'bg-white/20 text-white' : 'bg-primary/15 text-primary'}
-              `}>
-                {requestCount}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="w-full flex flex-col">
+        {/* Tab Bar Pill Selector */}
+      <div className="bg-surface rounded-[var(--radius-lg)] p-1 flex overflow-x-auto no-scrollbar flex-nowrap gap-1 w-full sm:w-auto shadow-sm" role="tablist" aria-label="Friends sections">
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => handleTabChange(tab.key)}
+              id={`tab-${tab.key}`}
+              role="tab"
+              aria-selected={activeTab === tab.key}
+              aria-controls={`panel-${tab.key}`}
+              className={`
+                px-4 py-2 rounded-[var(--radius-md)] flex items-center gap-2 text-sm font-semibold transition-colors duration-150 cursor-pointer select-none btn-press shrink-0
+                ${isActive
+                  ? 'bg-primary text-white'
+                  : 'text-muted hover:text-foreground hover:bg-surface-hover'
+                }
+              `}
+            >
+              <span>{tab.label}</span>
+              {tab.key === 'requests' && requestCount > 0 && (
+                <span className={`
+                  min-w-[18px] h-[18px] px-1.5 rounded-[var(--radius-pill)] text-[10px] font-bold flex items-center justify-center font-mono
+                  ${isActive ? 'bg-white/20 text-white' : 'bg-error text-white'}
+                `}>
+                  {requestCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Error Banner */}
       {friendsError && (
-        <div className="flex items-center gap-2 p-4 mb-6 rounded-xl bg-error/10 border border-error/20 text-error text-sm" role="alert">
+        <div className="mt-3 flex items-center gap-2 p-4 rounded-[var(--radius-lg)] bg-error/10 border border-error/20 text-error text-sm animate-fadeIn font-sans" role="alert">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{friendsError}</span>
-          <button onClick={fetchFriends} className="ml-auto text-xs font-medium underline hover:text-error/80 transition-colors cursor-pointer">
+          <button onClick={fetchFriends} className="ml-auto text-xs font-semibold underline hover:text-error/85 transition-colors cursor-pointer">
             Retry
           </button>
         </div>
       )}
 
-      {/* ═══ MY FRIENDS TAB ═══ */}
+      {/* ─── MY FRIENDS TAB ─── */}
       {activeTab === 'friends' && (
-        <div className="animate-fadeInFast" role="tabpanel" id="panel-friends" aria-labelledby="tab-friends">
+        <div style={{ marginTop: '12px' }} className="animate-fadeInFast" role="tabpanel" id="panel-friends" aria-labelledby="tab-friends">
           {friends.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 container-subtle rounded-2xl">
-              <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-5">
+            <div style={{ padding: '80px 24px' }} className="flex flex-col items-center justify-center bg-surface rounded-[var(--radius-lg)] shadow-sm">
+              <div className="w-14 h-14 rounded-[var(--radius-pill)] bg-primary/10 flex items-center justify-center mb-5 animate-scaleIn">
                 <Users className="w-7 h-7 text-primary" />
               </div>
-              <h3 className="text-xl font-display font-semibold text-foreground mb-2">No Friends Yet</h3>
-              <p className="text-sm text-muted mb-6 text-center max-w-sm">
+              <h3 className="text-lg font-display font-bold text-foreground mb-2">No Friends Yet</h3>
+              <p className="text-sm text-muted mb-6 text-center max-w-sm font-sans">
                 Find friends to start splitting expenses together.
               </p>
-              <Button onClick={() => handleTabChange('discover')} size="lg" id="find-friends-cta">
+              <button
+                onClick={() => handleTabChange('discover')}
+                className="px-5 py-2.5 bg-primary text-white text-sm font-semibold rounded-[var(--radius-md)] transition-colors cursor-pointer flex items-center gap-2 btn-press hover:bg-primary-hover"
+                id="find-friends-cta"
+              >
                 <Search className="w-4 h-4" /> Find Friends
-              </Button>
+              </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 animate-slideUpIn">
-              {friends.map((friend) => (
-                <div
-                  key={friend.friendshipId}
-                  className={`group container-card ${
-                    friend.username ? 'container-card-interactive cursor-pointer' : 'p-5'
-                  }`}
-                >
-                  {friend.username ? (
-                    <Link to={`/profile/${friend.username}`} className="block p-5">
-                      <div className="flex items-center gap-4">
+            <>
+              {/* Desktop Grid Layout */}
+              <div className="hidden md:grid md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 md:gap-6 animate-slideUpIn">
+                {friends.map((friend, i) => {
+                  const isOwes = friend.netBalance > 0;
+                  const isOwed = friend.netBalance < 0;
+                  const balanceText = isOwes
+                    ? `+₱${friend.netBalance.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
+                    : isOwed
+                      ? `-₱${Math.abs(friend.netBalance).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`
+                      : '₱0.00';
+                  const balanceClass = isOwes
+                    ? 'text-success'
+                    : isOwed
+                      ? 'text-error'
+                      : 'text-muted';
+                  const balanceLabel = isOwes
+                    ? 'owes you'
+                    : isOwed
+                      ? 'you owe'
+                      : 'settled';
+
+                  const avatarAndNames = (
+                    <div className="flex flex-col items-center text-center w-full">
+                      <div className="mb-3 shrink-0">
                         <Avatar
                           src={friend.avatarUrl}
                           name={friend.displayName || friend.username || 'User'}
-                          size="md"
+                          size="lg"
+                          className="w-16 h-16 rounded-full"
+                          frameClass={friend.activeFrame?.cssClass || undefined}
                         />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate">
-                            {friend.displayName || friend.username || 'Unknown'}
-                          </p>
-                          {friend.username && (
-                            <p className="text-xs text-muted truncate">@{friend.username}</p>
-                          )}
-                        </div>
-                        <FriendBalance netBalance={friend.netBalance} />
                       </div>
-                    </Link>
-                  ) : (
-                    <div className="flex items-center gap-4">
+                      <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors leading-tight truncate w-full px-2">
+                        {friend.displayName || friend.username || 'Unknown'}
+                      </h3>
+                      {friend.username && (
+                        <span className="font-sans text-xs text-muted mt-1 truncate w-full px-2">
+                          @{friend.username}
+                        </span>
+                      )}
+                    </div>
+                  );
+
+                  return (
+                    <div
+                      key={friend.friendshipId}
+                      style={{ padding: '20px 16px', animationDelay: `${i * 40}ms` }}
+                      className="bg-surface rounded-[var(--radius-lg)] shadow-sm hover:shadow-md transition-all duration-200 flex flex-col justify-between h-full relative animate-slideUpIn opacity-0"
+                    >
+                      {friend.username ? (
+                        <Link to={`/profile/${friend.username}`} className="group flex flex-col items-center text-center w-full cursor-pointer focus:outline-none">
+                          {avatarAndNames}
+                        </Link>
+                      ) : (
+                        <div className="flex flex-col items-center text-center w-full">
+                          {avatarAndNames}
+                        </div>
+                      )}
+
+                      <div className="mt-4 flex-grow flex flex-col justify-end w-full">
+                        <div className="flex flex-col items-center justify-end w-full">
+                          <div className={`font-mono text-lg font-bold tracking-tight ${balanceClass}`}>
+                            {balanceText}
+                          </div>
+                          <p className="font-sans text-[10px] text-muted mt-0.5 uppercase tracking-wider font-semibold">
+                            {balanceLabel}
+                          </p>
+                        </div>
+                        
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleRemoveFriend(friend.friendshipId);
+                          }}
+                          disabled={actionLoading[friend.friendshipId]}
+                          className="mt-4 w-full py-1.5 px-3 text-error hover:bg-error/5 text-xs font-semibold transition-all duration-150 cursor-pointer btn-press disabled:opacity-50"
+                        >
+                          Remove Friend
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Mobile List Layout */}
+              <div className="grid grid-cols-1 gap-3 md:hidden">
+                {friends.map((friend, i) => {
+                  const isOwes = friend.netBalance > 0;
+                  const isOwed = friend.netBalance < 0;
+                  const balanceText = isOwes
+                    ? `+₱${friend.netBalance.toLocaleString('en-PH')}`
+                    : isOwed
+                      ? `-₱${Math.abs(friend.netBalance).toLocaleString('en-PH')}`
+                      : 'Settled';
+                  const balanceClass = isOwes
+                    ? 'text-success'
+                    : isOwed
+                      ? 'text-error'
+                      : 'text-muted';
+
+                  const mobileCardHeader = (
+                    <>
                       <Avatar
                         src={friend.avatarUrl}
-                        name={friend.displayName || 'User'}
+                        name={friend.displayName || friend.username || 'User'}
                         size="md"
+                        className="w-10 h-10 rounded-full shrink-0"
+                        frameClass={friend.activeFrame?.cssClass || undefined}
                       />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-foreground truncate">
-                          {friend.displayName || 'Unknown'}
-                        </p>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                          {friend.displayName || friend.username || 'Unknown'}
+                        </h3>
+                        {friend.username && (
+                          <p className="text-[11px] text-muted truncate mt-0.5 font-sans">
+                            @{friend.username}
+                          </p>
+                        )}
                       </div>
-                      <FriendBalance netBalance={friend.netBalance} />
-                    </div>
-                  )}
-                  {/* Remove button on hover */}
-                  <div className={`border-t border-border-subtle opacity-0 group-hover:opacity-100 transition-opacity ${
-                    friend.username ? 'mx-5 mb-5 pt-3' : 'mt-3 pt-3'
-                  }`}>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        handleRemoveFriend(friend.friendshipId);
-                      }}
-                      disabled={actionLoading[friend.friendshipId]}
-                      className="text-xs text-muted hover:text-error font-medium transition-colors cursor-pointer"
+                    </>
+                  );
+
+                  return (
+                    <div
+                      key={friend.friendshipId}
+                      style={{ padding: '20px', animationDelay: `${i * 30}ms` }}
+                      className="flex items-center justify-between gap-4 bg-surface rounded-[var(--radius-lg)] shadow-sm hover:shadow-md transition-all duration-200 animate-slideUpIn opacity-0"
                     >
-                      Remove Friend
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                      {friend.username ? (
+                        <Link to={`/profile/${friend.username}`} className="group flex items-center gap-3 flex-1 min-w-0 cursor-pointer focus:outline-none">
+                          {mobileCardHeader}
+                        </Link>
+                      ) : (
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          {mobileCardHeader}
+                        </div>
+                      )}
+                      
+                      <div className="text-right shrink-0 flex items-center gap-2">
+                        <span className={`font-mono text-sm font-bold tracking-tight ${balanceClass}`}>
+                          {balanceText}
+                        </span>
+                        
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            handleRemoveFriend(friend.friendshipId);
+                          }}
+                          disabled={actionLoading[friend.friendshipId]}
+                          className="w-11 h-11 flex items-center justify-center text-error hover:bg-error/5 rounded-[var(--radius-md)] transition-all cursor-pointer ml-1 btn-press disabled:opacity-50 font-sans"
+                          aria-label="Remove Friend"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
-          {/* Ghost Profiles Section */}
+          {/* Legacy Ghosts Profiles Section */}
           {ghosts.length > 0 && (
-            <div className="mt-8">
+            <div className="mt-8 animate-fadeInFast">
               <button
                 onClick={() => setGhostsExpanded((v) => !v)}
-                className="flex items-center gap-2 text-sm font-semibold text-muted hover:text-foreground transition-colors cursor-pointer mb-4"
+                className="flex items-center justify-between w-full p-4 bg-surface rounded-[var(--radius-lg)] hover:bg-surface-hover/50 shadow-sm transition-all cursor-pointer text-left group btn-press"
                 id="toggle-ghosts"
               >
-                <Ghost className="w-4 h-4" />
-                Legacy Ghost Profiles ({ghosts.length})
-                {ghostsExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-[var(--radius-pill)] bg-background flex items-center justify-center text-muted group-hover:bg-primary group-hover:text-white transition-all duration-200">
+                    <Ghost className="w-5 h-5 animate-scaleIn" />
+                  </div>
+                  <div>
+                    <h3 className="font-display text-sm font-bold text-foreground">
+                      Legacy Ghost Profiles ({ghosts.length})
+                    </h3>
+                    <p className="font-sans text-xs text-muted mt-0.5">
+                      Simplified profiles for manual tracking
+                    </p>
+                  </div>
+                </div>
+                <div className="text-muted group-hover:text-foreground transition-colors">
+                  {ghostsExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                </div>
               </button>
+
               {ghostsExpanded && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 animate-slideDownIn">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6 mt-4 animate-slideDownIn">
                   {ghosts.map((ghost) => (
-                    <div key={ghost.id} className="container-card p-4 flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-secondary/15 flex items-center justify-center">
-                        <Ghost className="w-4 h-4 text-secondary" />
+                    <div
+                      key={ghost.id}
+                      style={{ padding: '24px' }}
+                      className="bg-surface rounded-[var(--radius-lg)] shadow-sm hover:shadow-md transition-all duration-200 flex flex-col items-center text-center relative overflow-hidden"
+                    >
+                      <div className="w-12 h-12 rounded-[var(--radius-md)] bg-background border border-border flex items-center justify-center mb-3 text-muted">
+                        <Ghost className="w-6 h-6 text-primary" />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{ghost.name}</p>
-                        <p className="text-[10px] text-muted">Ghost Profile</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
+                      
+                      <h4 className="font-display text-sm font-bold text-foreground truncate w-full px-2" title={ghost.name}>{ghost.name}</h4>
+                      <p className="font-sans text-[11px] text-muted mt-1 mb-4 uppercase tracking-wider font-semibold">
+                        Legacy Profile
+                      </p>
+
+                      <div className="flex gap-2 w-full mt-auto">
+                        <button
                           onClick={() => setGhostToLink(ghost)}
-                          className="text-xs text-primary font-medium hover:underline cursor-pointer flex items-center gap-1"
+                          className="flex-1 text-xs font-semibold py-2 bg-primary text-white rounded-[var(--radius-md)] hover:bg-primary-hover transition-colors cursor-pointer btn-press"
                         >
-                          <Link2 className="w-3 h-3" /> Link
+                          Link
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleDeleteGhost(ghost.id)}
                           disabled={actionLoading[`delete-${ghost.id}`]}
-                          className="text-xs text-error font-medium hover:underline cursor-pointer flex items-center gap-1 ml-2 disabled:opacity-50"
+                          className="flex-1 font-display text-xs font-bold py-2 border border-border text-muted hover:text-error hover:border-error/20 hover:bg-error/5 rounded-[var(--radius-md)] transition-all cursor-pointer disabled:opacity-50 btn-press"
                         >
-                          <Trash2 className="w-3 h-3" /> Delete
+                          Delete
                         </button>
                       </div>
                     </div>
@@ -522,65 +751,71 @@ const Friends: React.FC = () => {
         </div>
       )}
 
-      {/* ═══ REQUESTS TAB ═══ */}
+      {/* ─── REQUESTS TAB ─── */}
       {activeTab === 'requests' && (
-        <div className="animate-fadeInFast space-y-8" role="tabpanel" id="panel-requests" aria-labelledby="tab-requests">
+        <div style={{ marginTop: '12px' }} className="animate-fadeInFast space-y-8" role="tabpanel" id="panel-requests" aria-labelledby="tab-requests">
           {/* Received Requests */}
           <div>
-            <h3 className="text-base font-display font-semibold text-foreground mb-4 flex items-center gap-2">
-              <UserPlus className="w-4 h-4 text-primary" /> Received
+            <h3 className="font-display text-base font-bold text-foreground mb-4 flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-primary" />
+              <span>Received</span>
               {received.length > 0 && (
-                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full font-bold">
+                <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-[var(--radius-pill)] font-mono font-bold">
                   {received.length}
                 </span>
               )}
             </h3>
             {received.length === 0 ? (
-              <div className="container-subtle rounded-xl p-8 text-center">
-                <p className="text-sm text-muted">No pending requests</p>
-                <p className="text-xs text-muted mt-1">Share your QR code to let friends connect with you</p>
+              <div style={{ padding: '32px' }} className="bg-surface rounded-[var(--radius-lg)] text-center shadow-sm">
+                <p className="font-sans text-sm text-muted">No pending requests</p>
+                <p className="font-sans text-xs text-muted/85 mt-1">
+                  Share your QR code to let friends connect with you
+                </p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 animate-slideUpIn">
                 {received.map((req) => (
                   <div
                     key={req.id}
-                    className={`container-card p-4 flex items-center gap-4 transition-all duration-300 ${
-                      slidingOut[req.id] ? 'animate-slideOutLeft' : ''
+                    style={{ padding: '20px' }}
+                    className={`bg-surface rounded-[var(--radius-lg)] flex items-center justify-between gap-4 shadow-sm transition-all duration-300 ${
+                      slidingOut[req.id] ? 'opacity-0 -translate-x-4' : ''
                     }`}
                   >
-                    <Avatar
-                      src={req.senderProfile?.avatarUrl}
-                      name={req.senderProfile?.displayName || req.senderProfile?.username || 'User'}
-                      size="md"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {req.senderProfile?.displayName || req.senderProfile?.username || 'Unknown'}
-                      </p>
-                      {req.senderProfile?.username && (
-                        <p className="text-xs text-muted">@{req.senderProfile.username}</p>
-                      )}
+                    <div className="flex items-center gap-4 min-w-0">
+                      <Avatar
+                        src={req.senderProfile?.avatarUrl}
+                        name={req.senderProfile?.displayName || req.senderProfile?.username || 'User'}
+                        size="md"
+                        frameClass={req.senderProfile?.activeFrame?.cssClass || undefined}
+                      />
+                      <div className="min-w-0">
+                        <p className="font-display text-sm font-bold text-foreground truncate">
+                          {req.senderProfile?.displayName || req.senderProfile?.username || 'Unknown'}
+                        </p>
+                        {req.senderProfile?.username && (
+                          <p className="font-sans text-[11px] text-muted truncate mt-0.5">
+                            @{req.senderProfile.username}
+                          </p>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      <Button
-                        size="sm"
-                        variant="primary"
+                      <button
                         onClick={() => handleAccept(req.id)}
-                        isLoading={actionLoading[req.id]}
-                        id={`accept-${req.id}`}
+                        disabled={actionLoading[req.id]}
+                        className="px-4 py-2 bg-primary text-white text-xs font-semibold rounded-[var(--radius-md)] hover:bg-primary-hover transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 btn-press h-11"
                       >
                         <Check className="w-3.5 h-3.5" /> Accept
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="ghost"
+                      </button>
+                      <button
                         onClick={() => handleDecline(req.id)}
                         disabled={actionLoading[req.id]}
-                        id={`decline-${req.id}`}
+                        className="w-11 h-11 flex items-center justify-center border border-border hover:border-error/20 hover:text-error hover:bg-error/5 text-muted rounded-[var(--radius-md)] transition-all cursor-pointer disabled:opacity-50 btn-press"
+                        aria-label="Decline Request"
                       >
-                        <X className="w-3.5 h-3.5" />
-                      </Button>
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -590,45 +825,49 @@ const Friends: React.FC = () => {
 
           {/* Sent Requests */}
           <div>
-            <h3 className="text-base font-display font-semibold text-foreground mb-4 flex items-center gap-2">
-              <Send className="w-4 h-4 text-muted" /> Sent
+            <h3 className="font-display text-base font-bold text-foreground mb-4 flex items-center gap-2">
+              <Send className="w-5 h-5 text-muted" />
+              <span>Sent</span>
             </h3>
             {sent.length === 0 ? (
-              <div className="container-subtle rounded-xl p-8 text-center">
-                <p className="text-sm text-muted">No outgoing requests</p>
+              <div style={{ padding: '32px' }} className="bg-surface rounded-[var(--radius-lg)] text-center shadow-sm">
+                <p className="font-sans text-sm text-muted">No outgoing requests</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 animate-slideUpIn">
                 {sent.map((req) => (
                   <div
                     key={req.id}
-                    className={`container-card p-4 flex items-center gap-4 transition-all duration-300 ${
-                      slidingOut[req.id] ? 'animate-slideOutLeft' : ''
+                    style={{ padding: '20px' }}
+                    className={`bg-surface rounded-[var(--radius-lg)] flex items-center justify-between gap-4 shadow-sm transition-all duration-300 ${
+                      slidingOut[req.id] ? 'opacity-0 -translate-x-4' : ''
                     }`}
                   >
-                    <Avatar
-                      src={req.receiverProfile?.avatarUrl}
-                      name={req.receiverProfile?.displayName || req.receiverProfile?.username || 'User'}
-                      size="md"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {req.receiverProfile?.displayName || req.receiverProfile?.username || 'Unknown'}
-                      </p>
-                      {req.receiverProfile?.username && (
-                        <p className="text-xs text-muted">@{req.receiverProfile.username}</p>
-                      )}
+                    <div className="flex items-center gap-4 min-w-0">
+                      <Avatar
+                        src={req.receiverProfile?.avatarUrl}
+                        name={req.receiverProfile?.displayName || req.receiverProfile?.username || 'User'}
+                        size="md"
+                        frameClass={req.receiverProfile?.activeFrame?.cssClass || undefined}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {req.receiverProfile?.displayName || req.receiverProfile?.username || 'Unknown'}
+                        </p>
+                        {req.receiverProfile?.username && (
+                          <p className="font-sans text-[11px] text-muted truncate mt-0.5">
+                            @{req.receiverProfile.username}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
+                    <button
                       onClick={() => handleCancel(req.id)}
-                      isLoading={actionLoading[req.id]}
-                      id={`cancel-${req.id}`}
-                      className="text-error hover:text-error"
+                      disabled={actionLoading[req.id]}
+                      className="px-4 py-2 border border-border text-muted hover:text-error hover:border-error/20 hover:bg-error/5 text-xs font-semibold rounded-[var(--radius-md)] transition-colors cursor-pointer disabled:opacity-50 btn-press h-11"
                     >
                       Cancel
-                    </Button>
+                    </button>
                   </div>
                 ))}
               </div>
@@ -637,194 +876,270 @@ const Friends: React.FC = () => {
         </div>
       )}
 
-      {/* ═══ DISCOVER TAB ═══ */}
+      {/* ─── DISCOVER TAB ─── */}
       {activeTab === 'discover' && (
-        <div className="animate-fadeInFast" role="tabpanel" id="panel-discover" aria-labelledby="tab-discover">
-          {/* Search */}
-          <div className="mb-6">
-            <Input
-              label="Search users"
-              hideLabel
-              type="text"
-              placeholder="Search by username, email, or name..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              id="user-search"
-              leftIcon={<Search className="w-5 h-5 text-muted" />}
-            />
+        <div 
+          style={{ marginTop: '12px' }} 
+          className="w-full animate-fadeInFast flex flex-col lg:flex-row gap-6 items-start" 
+          role="tabpanel" 
+          id="panel-discover" 
+          aria-labelledby="tab-discover"
+        >
+          {/* Left Column: Search & Results (70% on desktop) */}
+          <div className="w-full lg:w-[70%] space-y-6">
+            {/* Search Input */}
+            <div className="relative group">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted w-5 h-5 pointer-events-none group-focus-within:text-primary transition-colors" />
+              <label htmlFor="user-search" className="sr-only">Search by username, email, or name</label>
+              <input
+                type="text"
+                placeholder="Search by username, email, or name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ paddingLeft: '2.75rem', paddingRight: '1rem' }}
+                className="w-full h-14 bg-surface border border-border rounded-[var(--radius-lg)] text-foreground font-sans placeholder:text-muted/65 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all duration-200"
+                id="user-search"
+              />
+            </div>
+
+            {/* Search Results & Errors */}
+            {searchQuery.trim().length >= 2 && (
+              <div style={{ marginTop: '8px' }} className="space-y-3">
+                {searchError ? (
+                  <div className="flex items-center gap-2 p-4 rounded-[var(--radius-lg)] bg-error/10 border border-error/20 text-error text-sm animate-fadeIn font-sans" role="alert">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{searchError}</span>
+                    <button onClick={handleSearchRetry} className="ml-auto text-xs font-semibold underline hover:text-error/85 transition-colors cursor-pointer">
+                      Retry
+                    </button>
+                  </div>
+                ) : searching ? (
+                  <div className="flex flex-col gap-1">
+                    {[...Array(3)].map((_, i) => (
+                      <div key={i} style={{ padding: '20px' }} className="h-20 bg-surface rounded-[var(--radius-lg)] animate-pulse" />
+                    ))}
+                  </div>
+                ) : searchResults.length > 0 ? (
+                  <div className="flex flex-col gap-1 animate-slideUpIn">
+                    {searchResults.map((result) => (
+                      <div
+                        key={result.id}
+                        style={{ padding: '20px' }}
+                        className="bg-surface rounded-[var(--radius-lg)] flex items-center justify-between gap-4 shadow-sm"
+                      >
+                        <div className="flex items-center gap-4 min-w-0">
+                          <Avatar
+                            src={result.avatarUrl}
+                            name={result.displayName || result.username || 'User'}
+                            size="md"
+                            frameClass={result.activeFrame?.cssClass || undefined}
+                          />
+                          <div className="min-w-0">
+                            <p className="font-display text-sm font-bold text-foreground truncate">
+                              {result.displayName || result.username || 'Unknown'}
+                            </p>
+                            {result.username && (
+                              <p className="font-sans text-[11px] text-muted truncate mt-0.5">
+                                @{result.username}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="shrink-0 flex items-center">
+                          {result.relationshipStatus === 'none' && (
+                            <button
+                              onClick={() => handleSendRequest(result.id)}
+                              disabled={actionLoading[result.id]}
+                              className="px-6 py-3 bg-primary text-white text-xs font-semibold rounded-[var(--radius-md)] hover:bg-primary-hover transition-colors cursor-pointer disabled:opacity-50 inline-flex items-center justify-center btn-press"
+                              id={`add-${result.id}`}
+                            >
+                              Add
+                            </button>
+                          )}
+                          {result.relationshipStatus === 'pending_sent' && (
+                            <span className="text-xs font-sans font-semibold text-muted bg-surface-hover border border-border px-6 py-3 rounded-[var(--radius-md)] inline-flex items-center justify-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 animate-fadeInFast" /> Pending
+                            </span>
+                          )}
+                          {result.relationshipStatus === 'pending_received' && (
+                            <button
+                              onClick={() => handleTabChange('requests')}
+                              className="px-6 py-3 border border-border text-primary hover:bg-primary/5 font-sans text-xs font-semibold rounded-[var(--radius-md)] transition-all cursor-pointer inline-flex items-center justify-center btn-press"
+                            >
+                              Respond
+                            </button>
+                          )}
+                          {result.relationshipStatus === 'friends' && (
+                            <span className="text-xs font-sans font-semibold text-success bg-success/10 border border-success/20 px-6 py-3 rounded-[var(--radius-md)] inline-flex items-center justify-center gap-1.5">
+                              <Check className="w-3.5 h-3.5" /> Friends
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: '24px' }} className="bg-surface rounded-[var(--radius-lg)] text-center shadow-sm">
+                    <p className="font-sans text-sm text-muted mb-4">
+                      No users found for "<span className="text-foreground font-semibold">{searchQuery}</span>"
+                    </p>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-2 max-w-md mx-auto">
+                      <label htmlFor="invite-email" className="sr-only">Invite email address</label>
+                      <input
+                        type="email"
+                        placeholder="Invite via email..."
+                        value={inviteEmail}
+                        onChange={(e) => setInviteEmail(e.target.value)}
+                        maxLength={120}
+                        required
+                        className="w-full sm:flex-1 h-11 bg-background border border-border rounded-[var(--radius-md)] px-4 text-sm focus:outline-none focus:border-primary transition-colors text-foreground"
+                        id="invite-email"
+                      />
+                      <button
+                        onClick={handleInvite}
+                        className="w-full sm:w-auto h-11 px-5 border border-border text-foreground hover:bg-surface-hover font-sans text-xs font-semibold rounded-[var(--radius-md)] transition-all cursor-pointer flex items-center justify-center gap-1.5 btn-press"
+                        id="invite-btn"
+                      >
+                        <Mail className="w-3.5 h-3.5" /> Invite
+                      </button>
+                    </div>
+                    {inviteStatus && (
+                      <p className="text-xs font-bold text-success mt-3 font-sans">{inviteStatus}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {/* Search Results */}
-          {searchQuery.trim().length >= 2 && (
-            <div className="mb-8">
-              {searching ? (
-                <div className="space-y-3">
-                  {[...Array(3)].map((_, i) => (
-                    <div key={i} className="h-16 bg-surface rounded-xl animate-pulse" />
-                  ))}
-                </div>
-              ) : searchResults.length > 0 ? (
-                <div className="space-y-3 animate-slideUpIn">
-                  {searchResults.map((result) => (
-                    <div key={result.id} className="container-card p-4 flex items-center gap-4">
-                      <Avatar
-                        src={result.avatarUrl}
-                        name={result.displayName || result.username || 'User'}
-                        size="md"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground truncate">
-                          {result.displayName || result.username || 'Unknown'}
-                        </p>
-                        {result.username && (
-                          <p className="text-xs text-muted">@{result.username}</p>
-                        )}
-                      </div>
-                      <div className="shrink-0">
-                        {result.relationshipStatus === 'none' && (
-                          <Button
-                            size="sm"
-                            onClick={() => handleSendRequest(result.id)}
-                            isLoading={actionLoading[result.id]}
-                            id={`add-${result.id}`}
-                          >
-                            <UserPlus className="w-3.5 h-3.5" /> Add
-                          </Button>
-                        )}
-                        {result.relationshipStatus === 'pending_sent' && (
-                          <span className="text-xs font-semibold text-muted bg-surface-hover px-3 py-2 rounded-lg inline-flex items-center gap-1.5">
-                            <Clock className="w-3.5 h-3.5" /> Pending
-                          </span>
-                        )}
-                        {result.relationshipStatus === 'pending_received' && (
-                          <Button size="sm" variant="outline" onClick={() => handleTabChange('requests')}>
-                            Respond
-                          </Button>
-                        )}
-                        {result.relationshipStatus === 'friends' && (
-                          <span className="text-xs font-semibold text-success bg-success/10 px-3 py-2 rounded-lg inline-flex items-center gap-1.5">
-                            <Check className="w-3.5 h-3.5" /> Friends
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+          {/* Right Column: QR Code Card (30% on desktop) */}
+          <div className="w-full lg:w-[30%] flex justify-center shrink-0">
+            <div style={{ padding: '24px' }} className="bg-surface rounded-[var(--radius-lg)] shadow-sm w-full max-w-md lg:max-w-none mx-auto lg:mx-0 text-center">
+              <div className="flex items-center justify-center gap-2 mb-2">
+                <QrCode className="w-5 h-5 text-primary" />
+                <h3 className="font-display text-base font-bold text-foreground">Your QR Code</h3>
+              </div>
+              <p className="font-sans text-xs text-muted" style={{ textAlign: 'center', width: '100%', display: 'block', marginBottom: '24px' }}>
+                Let friends scan this to instantly send you a friend request
+              </p>
+              {qrDataUrl ? (
+                <div className="inline-block p-4 bg-white rounded-[var(--radius-lg)] shadow-sm select-none animate-scaleIn">
+                  <img src={qrDataUrl} alt="Profile QR Code" style={{ width: '240px', height: '240px' }} />
                 </div>
               ) : (
-                <div className="container-subtle rounded-xl p-8 text-center">
-                  <p className="text-sm text-muted mb-4">
-                    No users found for "<span className="text-foreground font-medium">{searchQuery}</span>"
-                  </p>
-                  <div className="flex items-center justify-center gap-2">
-                    <Input
-                      label="Invite email"
-                      hideLabel
-                      type="email"
-                      placeholder="Invite via email..."
-                      value={inviteEmail}
-                      onChange={(e) => setInviteEmail(e.target.value)}
-                      id="invite-email"
-                      className="max-w-xs"
-                    />
-                    <Button size="sm" variant="outline" onClick={handleInvite} id="invite-btn">
-                      <Mail className="w-3.5 h-3.5" /> Invite
-                    </Button>
-                  </div>
-                  {inviteStatus && (
-                    <p className="text-xs text-success mt-2">{inviteStatus}</p>
-                  )}
-                </div>
+                <div className="mx-auto bg-surface-hover rounded-[var(--radius-lg)] animate-pulse" style={{ width: '240px', height: '240px' }} />
+              )}
+              {user?.username && (
+                <p className="font-sans text-xs text-muted" style={{ textAlign: 'center', width: '100%', display: 'block', marginTop: '24px' }}>
+                  Or share your profile link: <span className="text-primary font-bold hover:underline cursor-pointer select-all">
+                    /profile/{user.username}
+                  </span>
+                </p>
               )}
             </div>
-          )}
-
-          {/* QR Code Section */}
-          <div className="container-card p-6 rounded-2xl text-center">
-            <div className="flex items-center justify-center gap-2 mb-4">
-              <QrCode className="w-5 h-5 text-primary" />
-              <h3 className="text-base font-display font-semibold text-foreground">Your QR Code</h3>
-            </div>
-            <p className="text-sm text-muted mb-5 max-w-sm mx-auto">
-              Let friends scan this to instantly send you a friend request
-            </p>
-            {qrDataUrl ? (
-              <div className="inline-block p-4 bg-white rounded-2xl shadow-sm">
-                <img src={qrDataUrl} alt="Profile QR Code" className="w-48 h-48" />
-              </div>
-            ) : (
-              <div className="w-48 h-48 mx-auto bg-surface rounded-2xl animate-pulse" />
-            )}
-            {user?.username && (
-              <p className="text-xs text-muted mt-4">
-                Or share your profile link: <span className="text-primary font-medium">
-                  /profile/{user.username}
-                </span>
-              </p>
-            )}
           </div>
         </div>
       )}
 
-      {/* ═══ LEADERBOARD TAB ═══ */}
+      {/* ─── LEADERBOARD TAB ─── */}
       {activeTab === 'leaderboard' && (
-        <div className="animate-fadeInFast" role="tabpanel" id="panel-leaderboard" aria-labelledby="tab-leaderboard">
+        <div style={{ marginTop: '12px' }} className="animate-fadeInFast" role="tabpanel" id="panel-leaderboard" aria-labelledby="tab-leaderboard">
           <Leaderboard />
         </div>
       )}
 
       {/* Ghost Link Modal */}
       {ghostToLink && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 animate-fadeInFast">
-          <div className="bg-surface w-full max-w-md rounded-2xl p-6 shadow-xl relative animate-slideUpIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeInFast">
+          <div
+            ref={ghostLinkTrapRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="ghost-link-title"
+            style={{ padding: '24px' }}
+            className="bg-surface w-full max-w-md rounded-[var(--radius-lg)] shadow-xl relative animate-scaleIn"
+          >
             <button
               onClick={() => { setGhostToLink(null); setGhostLinkQuery(''); }}
-              className="absolute top-4 right-4 text-muted hover:text-foreground cursor-pointer"
+              className="absolute top-4 right-4 p-1.5 rounded-[var(--radius-md)] text-muted hover:text-foreground hover:bg-surface-hover transition-colors cursor-pointer btn-press"
+              aria-label="Close modal"
             >
               <X className="w-5 h-5" />
             </button>
             
-            <h3 className="text-xl font-display font-semibold text-foreground mb-1">
+            <h3 id="ghost-link-title" className="font-display text-lg font-bold text-foreground mb-1">
               Link "{ghostToLink.name}"
             </h3>
-            <p className="text-sm text-muted mb-5">
+            <p className="font-sans text-xs text-muted mb-5">
               Search for a user to link this legacy profile to.
             </p>
             
-            <Input
-              label="Search user"
-              hideLabel
-              type="text"
-              placeholder="Search by username or email..."
-              value={ghostLinkQuery}
-              onChange={(e) => setGhostLinkQuery(e.target.value)}
-              id="ghost-link-search"
-              leftIcon={<Search className="w-4 h-4 text-muted" />}
-              autoFocus
-            />
+            <div className="relative group mb-4">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted w-4 h-4 pointer-events-none group-focus-within:text-primary transition-colors" />
+              <label htmlFor="ghost-link-search" className="sr-only">Search by username or email</label>
+              <input
+                type="text"
+                placeholder="Search by username or email..."
+                value={ghostLinkQuery}
+                onChange={(e) => setGhostLinkQuery(e.target.value)}
+                className="w-full h-11 bg-background border border-border rounded-[var(--radius-md)] pl-10 pr-4 text-sm focus:outline-none focus:border-primary transition-colors text-foreground"
+                id="ghost-link-search"
+                autoFocus
+              />
+            </div>
             
-            <div className="mt-4 max-h-60 overflow-y-auto space-y-2">
+            <div className="max-h-60 overflow-y-auto space-y-2 no-scrollbar">
               {ghostLinkQuery.length >= 2 && ghostLinkResults.length === 0 && (
-                <p className="text-sm text-muted text-center py-4">No users found.</p>
+                <p className="font-sans text-xs text-muted text-center py-4">No users found.</p>
               )}
               {ghostLinkResults.map((u) => (
-                <div key={u.id} className="flex items-center gap-3 p-3 rounded-xl border border-border-subtle bg-surface-hover">
-                  <Avatar src={u.avatarUrl} name={u.displayName || u.username || 'User'} size="sm" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold truncate">{u.displayName || u.username || 'Unknown'}</p>
-                    {u.username && <p className="text-xs text-muted truncate">@{u.username}</p>}
+                <div
+                  key={u.id}
+                  className="flex items-center justify-between gap-3 p-3 rounded-[var(--radius-md)] bg-surface-hover/50 hover:bg-surface-hover transition-colors duration-150 animate-fadeIn"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar
+                      src={u.avatarUrl}
+                      name={u.displayName || u.username || 'User'}
+                      size="sm"
+                      frameClass={u.activeFrame?.cssClass || undefined}
+                    />
+                    <div className="min-w-0">
+                      <p className="font-display text-xs font-bold text-foreground truncate">{u.displayName || u.username || 'Unknown'}</p>
+                      {u.username && <p className="font-sans text-[10px] text-muted truncate mt-0.5">@{u.username}</p>}
+                    </div>
                   </div>
-                  <Button 
-                    size="sm" 
+                  <button
                     onClick={() => handleLinkGhost(u.id)}
-                    isLoading={actionLoading[`link-${ghostToLink.id}`]}
+                    disabled={actionLoading[`link-${ghostToLink.id}`]}
+                    className="px-3 py-1.5 bg-primary text-white text-xs font-semibold rounded-[var(--radius-md)] hover:bg-primary-hover transition-colors cursor-pointer disabled:opacity-50 shrink-0 btn-press"
                   >
                     Link
-                  </Button>
+                  </button>
                 </div>
               ))}
             </div>
           </div>
         </div>
+      )}
+      </div>
+
+      {/* Global Custom Confirm/Alert Dialog */}
+      {dialogConfig && (
+        <ConfirmDialog
+          isOpen={dialogConfig.isOpen}
+          title={dialogConfig.title}
+          message={dialogConfig.message}
+          confirmLabel={dialogConfig.confirmLabel}
+          cancelLabel={dialogConfig.cancelLabel}
+          variant={dialogConfig.variant}
+          type={dialogConfig.type}
+          onConfirm={(val) => {
+            dialogConfig.onConfirm(val);
+            setDialogConfig(null);
+          }}
+          onCancel={() => setDialogConfig(null)}
+        />
       )}
     </div>
   );

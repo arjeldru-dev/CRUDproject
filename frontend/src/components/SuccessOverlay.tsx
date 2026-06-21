@@ -55,8 +55,7 @@ const SuccessOverlay: React.FC<SuccessOverlayProps> = ({ amount, mode }) => {
 
   return (
     <div
-      className="absolute inset-0 flex flex-col items-center justify-center z-20 rounded-2xl overflow-hidden"
-      style={{ background: 'var(--color-surface)', opacity: 0.97 }}
+      className="absolute inset-0 flex flex-col items-center justify-center z-20 rounded-2xl overflow-hidden bg-surface/95 animate-fadeInFast"
     >
       {/* Ambient glow */}
       <div
@@ -73,20 +72,25 @@ const SuccessOverlay: React.FC<SuccessOverlayProps> = ({ amount, mode }) => {
             key={p.id}
             className="absolute rounded-full pointer-events-none"
             style={{
-              left: `calc(${p.x}% + ${Math.cos(p.angle) * p.distance * 0.5}px)`,
-              top:  `calc(${p.y}% + ${Math.sin(p.angle) * p.distance * 0.5}px)`,
-              width: p.size,
-              height: p.size,
+              left: `${p.x}%`,
+              top: `${p.y}%`,
+              width: `${p.size}px`,
+              height: `${p.size}px`,
               background: p.color,
               opacity: 0,
               animation: `particleFloat 0.8s ${p.delay}s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards`,
-            }}
+              ['--dx' as string]: `${Math.cos(p.angle) * p.distance * 0.8}px`,
+              ['--dy' as string]: `${Math.sin(p.angle) * p.distance * 0.8}px`,
+            } as React.CSSProperties}
           />
         ))}
 
       {/* Success icon */}
       <div
-        className="w-24 h-24 rounded-full flex items-center justify-center mb-6 animate-successPulse bg-success/15 border-2 border-success/30"
+        className="w-24 h-24 rounded-full flex items-center justify-center mb-6 bg-success/15 border-2 border-success/30"
+        style={{
+          animation: 'fadeInScale 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both, successPulse 1.2s ease-in-out infinite 0.22s',
+        }}
       >
         <CheckCircle2
           className="w-12 h-12 text-success animate-fadeInScale"
@@ -96,14 +100,14 @@ const SuccessOverlay: React.FC<SuccessOverlayProps> = ({ amount, mode }) => {
 
       {/* Text — staggered entrance */}
       <h3
-        className="text-2xl font-display font-semibold text-foreground mb-2 animate-fadeInUp"
-        style={{ animationDelay: '0.1s' }}
+        className="text-2xl font-display font-semibold text-foreground mb-2 animate-slideUpIn"
+        style={{ animationDelay: '0.04s' }}
       >
-        {mode === 'expense' ? '🎉 Expense Split!' : mode === 'settlement' ? '🤝 Debt Settled!' : '💰 Budget Top-Up!'}
+        {mode === 'expense' ? 'Expense recorded' : mode === 'settlement' ? 'Settlement complete' : 'Top-up added'}
       </h3>
       <p
-        className="text-base text-muted animate-fadeInUp"
-        style={{ animationDelay: '0.2s' }}
+        className="text-base text-muted animate-slideUpIn"
+        style={{ animationDelay: '0.08s' }}
       >
         <span className="font-semibold text-success">
           {amount}
@@ -113,8 +117,8 @@ const SuccessOverlay: React.FC<SuccessOverlayProps> = ({ amount, mode }) => {
 
       {/* Saving indicator */}
       <div
-        className="mt-6 flex items-center gap-2 text-sm text-muted animate-fadeInUp"
-        style={{ animationDelay: '0.35s' }}
+        className="mt-6 flex items-center gap-2 text-sm text-muted animate-slideUpIn"
+        style={{ animationDelay: '0.12s' }}
       >
         <span className="inline-flex gap-1">
           {[0, 1, 2].map((i) => (

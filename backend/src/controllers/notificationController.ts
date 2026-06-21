@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 
 export const getNotifications = async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = req.user.id;
   const { limit = 20, cursor } = req.query;
 
   try {
@@ -37,7 +37,7 @@ export const getNotifications = async (req: Request, res: Response) => {
 };
 
 export const getUnreadCount = async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = req.user.id;
 
   try {
     const count = await prisma.notification.count({
@@ -53,7 +53,7 @@ export const getUnreadCount = async (req: Request, res: Response) => {
 };
 
 export const markAsRead = async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = req.user.id;
   const { id } = req.params;
 
   try {
@@ -68,7 +68,7 @@ export const markAsRead = async (req: Request, res: Response) => {
 };
 
 export const markAllAsRead = async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = req.user.id;
 
   try {
     await prisma.notification.updateMany({
@@ -82,7 +82,7 @@ export const markAllAsRead = async (req: Request, res: Response) => {
 };
 
 export const subscribeToPush = async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = req.user.id;
   const { subscription } = req.body;
 
   if (!subscription || !subscription.endpoint) {
@@ -115,7 +115,7 @@ export const subscribeToPush = async (req: Request, res: Response) => {
 };
 
 export const unsubscribeFromPush = async (req: Request, res: Response) => {
-  const userId = (req as any).user.id;
+  const userId = req.user.id;
   const { endpoint } = req.body;
 
   try {

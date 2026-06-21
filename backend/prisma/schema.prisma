@@ -36,6 +36,7 @@ model User {
   feedPosts    FeedPost[]
   reactions    Reaction[]
   comments     Comment[]
+  commentLikes CommentLike[]
 
   // Gamification relations
   gamification              UserGamification?
@@ -210,6 +211,7 @@ model Reaction {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, userId, emoji])
+  @@index([postId])
   @@map("reactions")
 }
 
@@ -217,13 +219,31 @@ model Comment {
   id        String   @id @default(uuid()) @db.Uuid
   postId    String   @map("post_id") @db.Uuid
   userId    String   @map("user_id") @db.Uuid
+  parentId  String?  @map("parent_id") @db.Uuid
   text      String   @db.VarChar(500)
   createdAt DateTime @default(now()) @map("created_at")
 
   post      FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Comment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[] @relation("CommentReplies")
+  likes     CommentLike[]
 
+  @@index([postId, createdAt])
   @@map("comments")
+}
+
+model CommentLike {
+  id        String   @id @default(uuid()) @db.Uuid
+  commentId String   @map("comment_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@map("comment_likes")
 }
 
 // ── Privacy & Blocking System ──────────────────────────────────────────

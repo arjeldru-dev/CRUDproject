@@ -16,7 +16,7 @@ interface ThemeState {
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set, get) => ({
-      theme: 'dark', // Default to dark as per existing design
+      theme: 'light', // Default to light mode for new users, persisted dynamically
       toggleTheme: () => {
         const newTheme = get().theme === 'light' ? 'dark' : 'light';
         set({ theme: newTheme });
@@ -28,7 +28,7 @@ export const useThemeStore = create<ThemeState>()(
       },
     }),
     {
-      name: 'hybrid-ledger-theme',
+      name: 'budgetbarkada-theme',
       onRehydrateStorage: () => (state) => {
         if (state) {
           applyTheme(state.theme);

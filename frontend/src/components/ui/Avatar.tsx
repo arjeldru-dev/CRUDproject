@@ -6,7 +6,7 @@ interface AvatarProps {
   /** User's display name or email — used for generating initials. */
   name: string;
   /** Size variant of the avatar. */
-  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   /** Additional CSS classes. */
   className?: string;
   /** Click handler (used for avatar upload trigger). */
@@ -16,11 +16,30 @@ interface AvatarProps {
 }
 
 const sizeMap: Record<string, { container: string; text: string }> = {
-  xs: { container: 'w-6 h-6', text: 'text-[10px]' },
-  sm: { container: 'w-8 h-8', text: 'text-xs' },
-  md: { container: 'w-10 h-10', text: 'text-sm' },
-  lg: { container: 'w-16 h-16', text: 'text-xl' },
-  xl: { container: 'w-24 h-24', text: 'text-3xl' },
+  xs: { container: 'w-6 h-6', text: 'text-[9px]' },
+  sm: { container: 'w-8 h-8', text: 'text-[10px]' },
+  md: { container: 'w-10 h-10', text: 'text-xs' },
+  lg: { container: 'w-16 h-16', text: 'text-lg' },
+  xl: { container: 'w-24 h-24', text: 'text-2xl' },
+  '2xl': { container: 'w-32 h-32', text: 'text-4xl' },
+};
+
+const frameStyleMap: Record<string, string> = {
+  'ring-2 ring-amber-600': 'avatar-frame-bronze',
+  'ring-2 ring-gray-400': 'avatar-frame-silver',
+  'ring-2 ring-yellow-400': 'avatar-frame-gold',
+  'ring-2 ring-emerald-400 shadow-emerald-400/40 shadow-lg': 'avatar-frame-emerald',
+  'ring-2 ring-orange-500 animate-pulse': 'avatar-frame-fire',
+  'ring-4 ring-primary shadow-primary/30 shadow-xl': 'avatar-frame-diamond',
+};
+
+const paddingMap: Record<string, string> = {
+  xs: 'p-[1.5px]',
+  sm: 'p-[2px]',
+  md: 'p-[2.5px]',
+  lg: 'p-[3.5px]',
+  xl: 'p-[4.5px]',
+  '2xl': 'p-[5.5px]',
 };
 
 /** Deterministic color from a string — produces a pleasant hue. */
@@ -30,7 +49,7 @@ function getInitialsColor(name: string): string {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
   }
   const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 55%, 55%)`;
+  return `hsl(${hue}, 45%, 50%)`;
 }
 
 /** Extract up to 2 initials from a name. */
@@ -45,7 +64,7 @@ function getInitials(name: string): string {
 /**
  * Reusable avatar component.
  * Renders the user's uploaded avatar image, or falls back to a
- * colored circle with initials (CSS-based, no image needed).
+ * colored circle with initials.
  */
 const Avatar: React.FC<AvatarProps> = ({
   src,
@@ -58,27 +77,28 @@ const Avatar: React.FC<AvatarProps> = ({
   const { container, text } = sizeMap[size];
   const initials = getInitials(name);
   const bgColor = getInitialsColor(name);
+  const [imgError, setImgError] = React.useState(false);
+
+  React.useEffect(() => {
+    setImgError(false);
+  }, [src]);
 
   const baseClasses = `
-    rounded-xl flex items-center justify-center overflow-hidden
-    font-display font-semibold select-none shrink-0
-    transition-all duration-200
-    ${onClick && !frameClass ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''}
+    rounded-full flex items-center justify-center overflow-hidden
+    bg-surface font-display font-semibold select-none shrink-0
+    transition-all duration-150
     ${container} ${text} ${className}
   `;
 
-  const renderAvatar = () => {
-    if (src) {
+  const renderAvatarContent = () => {
+    if (src && !imgError) {
       return (
-        <div className={baseClasses} onClick={frameClass ? undefined : onClick}>
+        <div className={baseClasses}>
           <img
             src={src}
             alt={`${name}'s avatar`}
             className="w-full h-full object-cover"
-            onError={(e) => {
-              // On load error, hide image so initials fallback shows
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
+            onError={() => setImgError(true)}
           />
         </div>
       );
@@ -87,29 +107,40 @@ const Avatar: React.FC<AvatarProps> = ({
     return (
       <div
         className={baseClasses}
-        onClick={frameClass ? undefined : onClick}
         style={{ backgroundColor: bgColor }}
         aria-label={`${name}'s avatar`}
       >
-        <span className="text-white drop-shadow-sm">{initials}</span>
+        <span className="text-white/90">{initials}</span>
       </div>
     );
   };
 
-  if (frameClass) {
+  const framedContent = frameClass ? (
+    <div
+      className={`relative inline-flex rounded-full transition-all duration-150 ${
+        paddingMap[size] || 'p-[2.5px]'
+      } ${frameStyleMap[frameClass] || frameClass}`}
+    >
+      {renderAvatarContent()}
+    </div>
+  ) : (
+    renderAvatarContent()
+  );
+
+  if (onClick) {
     return (
-      <div
-        className={`relative inline-flex rounded-xl p-[2px] transition-all duration-200 ${frameClass} ${
-          onClick ? 'cursor-pointer hover:opacity-80 active:scale-95' : ''
-        }`}
+      <button
+        type="button"
         onClick={onClick}
+        className="p-0 m-0 border-0 bg-transparent text-left outline-none cursor-pointer rounded-full avatar-interactive-btn focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2 shrink-0 inline-flex"
+        aria-label={`Upload or edit avatar for ${name}`}
       >
-        {renderAvatar()}
-      </div>
+        {framedContent}
+      </button>
     );
   }
 
-  return renderAvatar();
+  return framedContent;
 };
 
 export default Avatar;

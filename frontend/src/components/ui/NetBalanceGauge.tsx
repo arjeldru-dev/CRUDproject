@@ -104,11 +104,11 @@ export const NetBalanceGauge: React.FC<NetBalanceGaugeProps> = ({
 
   return (
     <div className="container-card p-6 md:p-8 flex flex-col h-full justify-between">
-      <h3 className="text-lg font-display font-semibold text-foreground mb-4">Net Position</h3>
+      <h3 className="text-lg font-display font-semibold text-foreground mb-4">Net Balance</h3>
 
       <div className="flex flex-col items-center justify-center gap-6 my-auto py-2">
         {/* SVG semi-circular gauge */}
-        <div className="relative w-[180px] h-[100px] flex-shrink-0">
+        <div className="relative w-[180px] h-[100px] lg:w-[240px] lg:h-[130px] flex-shrink-0">
           <svg viewBox="0 0 180 100" className="w-full h-full overflow-visible">
             {/* Background Track */}
             <path
@@ -187,14 +187,13 @@ export const NetBalanceGauge: React.FC<NetBalanceGaugeProps> = ({
           >
             {badgeText}
           </div>
-          <span className="text-xl font-display font-bold text-foreground mt-2 leading-none">
-            {netBalance >= 0 ? '+' : ''}
-            {fmt(netBalance)}
+          <span className={`text-xl md:text-2xl font-bold font-mono mt-2 leading-none ${isNetPositive ? 'text-success' : isNetNegative ? 'text-error' : 'text-foreground'}`}>
+            Net: {netBalance >= 0 ? '+' : ''}{fmt(netBalance)}
           </span>
         </div>
 
         {/* Breakdown Sub-counters */}
-        <div className="flex w-full items-center justify-between gap-4 mt-2 pt-4 border-t border-border-subtle">
+        <div className="flex w-full items-center justify-between gap-4 mt-2 pt-4 border-t border-border-subtle max-w-[320px]">
           {/* Receivables */}
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-success/10 flex items-center justify-center shrink-0">

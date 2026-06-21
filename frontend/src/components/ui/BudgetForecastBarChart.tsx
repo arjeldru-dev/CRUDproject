@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Sparkles } from 'lucide-react';
+import { AlertTriangle, TrendingUp, Lightbulb } from 'lucide-react';
 
 interface BudgetForecastBarChartProps {
   categoryName: string;
@@ -10,7 +10,7 @@ interface BudgetForecastBarChartProps {
   status?: string;
 }
 
-export const BudgetForecastBarChart: React.FC<BudgetForecastBarChartProps> = ({
+const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = ({
   categoryName,
   monthlyLimit,
   spent,
@@ -40,20 +40,17 @@ export const BudgetForecastBarChart: React.FC<BudgetForecastBarChartProps> = ({
     : (hasLimit && projectedSpend && projectedSpend > monthlyLimit);
 
   // Determine progress colors
-  let progressColorClass = 'bg-gradient-to-r from-success/80 to-success';
+  let progressColorClass = 'bg-success';
   let projectionColorClass = 'bg-success/30';
   let remainingColorClass = 'text-success';
-  let glowColor = '';
 
   if (isOverBudget) {
-    progressColorClass = 'bg-gradient-to-r from-error/80 to-error';
+    progressColorClass = 'bg-error';
     remainingColorClass = 'text-error';
-    glowColor = 'rgba(224, 112, 112, 0.4)'; // error shadow
   } else if (isAtRisk || isProjectedOverBudget) {
-    progressColorClass = 'bg-gradient-to-r from-warning/80 to-warning';
+    progressColorClass = 'bg-warning';
     projectionColorClass = 'bg-warning/40';
     remainingColorClass = 'text-warning';
-    glowColor = 'rgba(235, 181, 94, 0.4)'; // warning shadow
   }
 
   // Draw projection only if projected spend is greater than spent
@@ -70,27 +67,34 @@ export const BudgetForecastBarChart: React.FC<BudgetForecastBarChartProps> = ({
   };
 
   return (
-    <div className={`container-card p-4 hover:border-border transition-all duration-300 ${
-      isOverBudget ? 'border-error/20 bg-error/[0.01]' : isAtRisk ? 'border-warning/20 bg-warning/[0.01]' : ''
-    }`}>
+    <div 
+      className={`bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md hover:bg-surface-hover/30 ease-out ${
+        isOverBudget ? 'border-error/20 bg-error/[0.01]' : isAtRisk ? 'border-warning/20 bg-warning/[0.01]' : ''
+      }`}
+      style={{ padding: '24px' }}
+    >
       {/* Header Info */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
           {isOverBudget && (
-            <AlertTriangle className="w-4 h-4 text-error animate-pulse shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-error animate-pulse shrink-0" aria-hidden="true" />
           )}
           {!isOverBudget && isAtRisk && (
-            <AlertTriangle className="w-4 h-4 text-warning shrink-0" />
+            <AlertTriangle className="w-4 h-4 text-warning shrink-0" aria-hidden="true" />
           )}
-          {!isOverBudget && !isAtRisk && projectedSpend && (
-            <Sparkles className="w-3.5 h-3.5 text-success shrink-0" />
+          {!isOverBudget && !isAtRisk && (
+            projectedSpend && projectedSpend > 0 ? (
+              <TrendingUp className="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
+            ) : (
+              <TrendingUp className="w-3.5 h-3.5 text-muted/60 shrink-0" aria-hidden="true" />
+            )
           )}
-          <span className="text-sm font-semibold text-foreground truncate max-w-[150px]">
+          <span className="text-sm font-display font-semibold text-foreground truncate flex-1">
             {categoryName}
           </span>
         </div>
 
-        <span className={`text-xs font-bold leading-none ${remainingColorClass}`}>
+        <span className={`text-xs font-mono font-bold leading-none shrink-0 ${remainingColorClass}`}>
           {!hasLimit ? (
             'No Limit Set'
           ) : isOverBudget ? (
@@ -103,10 +107,7 @@ export const BudgetForecastBarChart: React.FC<BudgetForecastBarChartProps> = ({
 
       {/* Progress Bar Container with Shadow Glow */}
       <div
-        className="w-full h-2.5 bg-surface-hover rounded-full overflow-hidden relative border border-border-subtle/50 transition-all duration-300"
-        style={{
-          boxShadow: glowColor ? `0 0 10px ${glowColor}` : 'none',
-        }}
+        className="w-full h-2 bg-surface-hover rounded-full overflow-hidden relative border border-border/50 transition-[border-color] duration-160 ease-out"
       >
         {/* Spent Progress */}
         {spent > 0 && (
@@ -131,18 +132,23 @@ export const BudgetForecastBarChart: React.FC<BudgetForecastBarChartProps> = ({
 
       {/* Footer Info & AI projection subtext */}
       <div className="flex items-center justify-between mt-3 text-[11px] text-muted font-medium">
-        <div className="flex flex-col gap-0.5">
-          <span>Spent: {fmt(spent)}</span>
-          {projectedSpend && projectedSpend > 0 && (
-            <span className="flex items-center gap-1 mt-0.5 text-foreground/80">
-              <Sparkles className="w-3 h-3 text-primary" />
-              Forecast: {fmt(projectedSpend)}
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="truncate">Spent: <span className="font-mono text-foreground">{fmt(spent)}</span></span>
+          {(projectedSpend !== undefined && projectedSpend > 0) ? (
+            <span className="flex items-center gap-1 mt-0.5 text-foreground/80 truncate">
+              <Lightbulb className="w-3.5 h-3.5 text-primary shrink-0" aria-hidden="true" />
+              Forecast: <span className="font-mono text-foreground font-semibold">{fmt(projectedSpend)}</span>
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 mt-0.5 text-muted/60 truncate">
+              <Lightbulb className="w-3.5 h-3.5 text-muted/50 shrink-0" aria-hidden="true" />
+              Forecast: <span className="font-mono text-muted/70 font-semibold">{fmt(0)}</span>
             </span>
           )}
         </div>
         
-        <div className="text-right flex flex-col gap-0.5">
-          <span>Limit: {hasLimit ? fmt(monthlyLimit) : '—'}</span>
+        <div className="text-right flex flex-col gap-0.5 shrink-0">
+          <span>Limit: <span className="font-mono">{hasLimit ? fmt(monthlyLimit) : '—'}</span></span>
           {hasLimit && (
             <span className={isOverBudget ? 'text-error' : isProjectedOverBudget ? 'text-error' : isAtRisk ? 'text-warning' : 'text-success'}>
               {isOverBudget ? 'Over Budget' : isProjectedOverBudget ? 'Predicts Overspend' : isAtRisk ? 'At Risk' : 'On Track'}
@@ -153,3 +159,5 @@ export const BudgetForecastBarChart: React.FC<BudgetForecastBarChartProps> = ({
     </div>
   );
 };
+
+export const BudgetForecastBarChart = React.memo(BudgetForecastBarChartComponent);

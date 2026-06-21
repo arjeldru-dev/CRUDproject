@@ -10,7 +10,7 @@ interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement
 
 /**
  * Reusable textarea with label, error display, and optional character counter.
- * Soft geometry styling matching the Input component.
+ * Matches Input component styling.
  */
 const Textarea: React.FC<TextareaProps> = ({
   label,
@@ -30,13 +30,13 @@ const Textarea: React.FC<TextareaProps> = ({
       <div className="flex items-center justify-between">
         <label
           htmlFor={inputId}
-          className={`text-sm font-medium text-muted tracking-wide ${hideLabel ? 'sr-only' : ''}`}
+          className={`text-xs font-semibold text-muted uppercase tracking-wider ${hideLabel ? 'sr-only' : ''}`}
         >
           {label}
         </label>
         {maxChars && (
           <span
-            className={`text-xs font-medium transition-colors ${
+            className={`text-xs font-medium tabular-nums transition-colors ${
               charCount > maxChars ? 'text-error' : 'text-muted'
             }`}
           >
@@ -48,21 +48,21 @@ const Textarea: React.FC<TextareaProps> = ({
         id={inputId}
         value={value}
         className={`
-          w-full px-5 py-3.5 rounded-xl resize-none
-          bg-surface border border-border-subtle text-foreground placeholder-muted/60 font-medium
-          transition-all duration-200 ease-out
-          focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10
+          w-full px-3.5 py-3 rounded-lg resize-none
+          bg-surface border border-border text-foreground placeholder-muted/50 font-medium text-sm
+          transition-all duration-150
+          focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15
           ${
             error
-              ? 'border-error focus:border-error focus:ring-error/10'
-              : 'hover:border-border'
+              ? 'border-error focus:border-error focus:ring-error/15'
+              : 'hover:border-muted/30'
           }
           ${className}
         `}
         {...props}
       />
       {error && (
-        <p className="text-xs text-error mt-0.5" role="alert">
+        <p className="text-xs text-error font-medium" role="alert">
           {error}
         </p>
       )}

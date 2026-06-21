@@ -29,7 +29,7 @@ app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
 // Health check route
 app.get('/api/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok', service: 'Hybrid Ledger API' });
+  res.json({ status: 'ok', service: 'BudgetBarkada API' });
 });
 
 // Authentication routes
