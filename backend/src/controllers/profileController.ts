@@ -153,26 +153,15 @@ export const uploadAvatar = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No file uploaded.' });
     }
 
-    // Determine extension from mimetype
-    const extMap: Record<string, string> = {
-      'image/jpeg': 'jpg',
-      'image/png': 'png',
-      'image/webp': 'webp',
-    };
-    const ext = extMap[req.file.mimetype] || 'jpg';
-    const filename = `${req.user.id}.${ext}`;
-    const outputPath = path.join(UPLOADS_DIR, filename);
-
-    // Resize to 256x256 using sharp
-    await sharp(req.file.buffer)
+    // Resize to 256x256 and compress to WebP format using sharp to get a buffer
+    const compressedBuffer = await sharp(req.file.buffer)
       .resize(256, 256, { fit: 'cover', position: 'center' })
-      .toFile(outputPath);
+      .webp({ quality: 80 })
+      .toBuffer();
 
-    // Build public URL dynamically from incoming request host
-    const protocol = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
-    const host = req.headers.host;
-    const baseUrl = process.env.API_BASE_URL || (host ? `${protocol}://${host}` : `http://localhost:${process.env.PORT || 5000}`);
-    const avatarUrl = `${baseUrl}/uploads/avatars/${filename}?t=${Date.now()}`;
+    // Convert buffer to Base64 Data URL
+    const base64Image = compressedBuffer.toString('base64');
+    const avatarUrl = `data:image/webp;base64,${base64Image}`;
 
     // Update user record
     await prisma.user.update({
@@ -352,6 +341,25 @@ export const getPublicProfile = async (req: Request, res: Response) => {
   }
 };
 
+function isLocalOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname === '::1' ||
+      hostname === '[::1]' ||
+      !hostname.includes('.') ||
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('127.') ||
+      /^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname)
+    );
+  } catch {
+    return true;
+  }
+}
+
 // ── GET /api/profile/:userId/qr ───────────────────────────────────────
 export const getProfileQR = async (req: Request, res: Response) => {
   try {
@@ -371,7 +379,7 @@ export const getProfileQR = async (req: Request, res: Response) => {
     if (!frontendUrl && referer) {
       try {
         const origin = new URL(referer).origin;
-        if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+        if (!isLocalOrigin(origin)) {
           frontendUrl = origin;
         }
       } catch {
