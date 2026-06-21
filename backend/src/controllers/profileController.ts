@@ -168,8 +168,10 @@ export const uploadAvatar = async (req: Request, res: Response) => {
       .resize(256, 256, { fit: 'cover', position: 'center' })
       .toFile(outputPath);
 
-    // Build public URL with cache-busting param
-    const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5000}`;
+    // Build public URL dynamically from incoming request host
+    const protocol = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+    const host = req.headers.host;
+    const baseUrl = process.env.API_BASE_URL || (host ? `${protocol}://${host}` : `http://localhost:${process.env.PORT || 5000}`);
     const avatarUrl = `${baseUrl}/uploads/avatars/${filename}?t=${Date.now()}`;
 
     // Update user record
@@ -368,7 +370,10 @@ export const getProfileQR = async (req: Request, res: Response) => {
     let frontendUrl = process.env.FRONTEND_URL;
     if (!frontendUrl && referer) {
       try {
-        frontendUrl = new URL(referer).origin;
+        const origin = new URL(referer).origin;
+        if (!origin.includes('localhost') && !origin.includes('127.0.0.1')) {
+          frontendUrl = origin;
+        }
       } catch {
         // Ignore parsing errors
       }
