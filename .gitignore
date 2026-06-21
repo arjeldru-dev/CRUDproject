@@ -6,3 +6,4 @@ dist/
 .agents/
 brain/
 skills-lock.json
+.antigravityignore
