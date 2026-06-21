@@ -1030,9 +1030,25 @@ const Friends: React.FC = () => {
                 <div className="mx-auto bg-surface-hover rounded-[var(--radius-lg)] animate-pulse" style={{ width: '240px', height: '240px' }} />
               )}
               {user?.username && (
-                <p className="font-sans text-xs text-muted" style={{ textAlign: 'center', width: '100%', display: 'block', marginTop: '24px' }}>
-                  Or share your profile link: <span className="text-primary font-bold hover:underline cursor-pointer select-all">
-                    /profile/{user.username}
+                <p className="font-sans text-xs text-muted leading-relaxed" style={{ textAlign: 'center', width: '100%', display: 'block', marginTop: '24px' }}>
+                  Or share your profile link:{' '}
+                  <span
+                    onClick={() => {
+                      navigator.clipboard.writeText(
+                        `${window.location.origin}/profile/${user.username}?action=add-friend`
+                      );
+                      setDialogConfig({
+                        isOpen: true,
+                        title: 'Link Copied',
+                        message: 'Profile link copied to clipboard.',
+                        type: 'alert',
+                        confirmLabel: 'OK',
+                        onConfirm: () => {},
+                      });
+                    }}
+                    className="text-primary font-bold hover:underline cursor-pointer select-all block break-all mt-1"
+                  >
+                    {window.location.origin}/profile/{user.username}?action=add-friend
                   </span>
                 </p>
               )}

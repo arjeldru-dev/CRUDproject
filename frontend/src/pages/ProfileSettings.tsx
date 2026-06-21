@@ -301,7 +301,6 @@ const ProfileSettings: React.FC = () => {
       formData.append('avatar', file);
 
       const res = await api.post('/profile/avatar', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
         signal: controller.signal,
       });
 

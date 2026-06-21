@@ -364,7 +364,18 @@ export const getProfileQR = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'User not found or username not set' });
     }
 
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const referer = req.headers.referer;
+    let frontendUrl = process.env.FRONTEND_URL;
+    if (!frontendUrl && referer) {
+      try {
+        frontendUrl = new URL(referer).origin;
+      } catch {
+        // Ignore parsing errors
+      }
+    }
+    if (!frontendUrl) {
+      frontendUrl = 'https://budgetbarkada.vercel.app';
+    }
     const profileUrl = `${frontendUrl}/profile/${user.username}?action=add-friend`;
 
     const qrDataUrl = await QRCode.toDataURL(profileUrl, {

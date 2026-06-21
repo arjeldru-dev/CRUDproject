@@ -647,7 +647,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                       You haven't created any budget categories yet. You need at least one category to record transactions.
                     </p>
                     <a
-                      href="/budget"
+                      href="/categories"
                       onClick={onClose}
                       className="text-xs font-semibold text-warning hover:underline flex items-center gap-1 mt-1 font-sans"
                     >
