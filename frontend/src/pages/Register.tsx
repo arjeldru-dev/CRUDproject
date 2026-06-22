@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
-import { WarningCircle, EnvelopeSimple, LockSimple, User, Eye, EyeSlash, ArrowRight } from '@phosphor-icons/react';
+import { WarningCircle, EnvelopeSimple, User, ArrowRight } from '@phosphor-icons/react';
+import PasswordField from '../components/ui/PasswordField';
 
 /**
  * Register page — creates account via POST /api/auth/register.
@@ -13,9 +14,6 @@ const Register: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -190,112 +188,58 @@ const Register: React.FC = () => {
 
         {/* Password Field - Entrance Animation (Delay 120ms) */}
         <div 
-          className="flex flex-col gap-2.5 group animate-slideUpIn" 
+          className="animate-slideUpIn" 
           style={{ animationDelay: '120ms' }}
         >
-          <label 
-            className="text-xs font-bold text-muted uppercase tracking-wider font-sans" 
-            htmlFor="password"
-          >
-            Password
-          </label>
-          <div className="relative w-full group">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none w-5 h-5 flex items-center justify-center group-focus-within:text-primary transition-colors duration-150">
-              <LockSimple size={18} />
-            </div>
-            <input 
-              id="password" 
-              type={showPassword ? "text" : "password"} 
-              placeholder="Minimum 8 characters" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-              disabled={isLoading}
-              className={`w-full h-14 bg-surface-hover border rounded-lg pr-12 text-foreground text-sm placeholder:text-muted/70 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-150 font-sans disabled:opacity-60 disabled:cursor-not-allowed ${
-                fieldErrors.password ? 'border-error focus:border-error focus:ring-error/20' : 'border-border'
-              }`}
-              style={{ paddingLeft: '2.75rem' }}
-            />
-            {/* Password toggle button - disabled when loading */}
-            <button 
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              disabled={isLoading}
-              className="absolute right-1 top-1/2 -translate-y-1/2 w-12 h-12 flex items-center justify-center text-muted hover:text-primary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface rounded-md transition-[transform,color] duration-150 ease-out active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
-          
-          {/* Password Strength Indicator */}
-          {password.length > 0 && (
-            <div className="flex flex-col gap-1.5 mt-1">
-              <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-semibold">
-                <span className="text-muted">Password Strength</span>
-                <span className={
-                  strength.score === 1 ? 'text-error' :
-                  strength.score === 2 ? 'text-warning' :
-                  'text-success'
-                }>{strength.label}</span>
-              </div>
-              <div className="flex gap-1 h-1.5 w-full">
-                <div className={`flex-1 rounded-full transition-colors duration-300 ${strength.score >= 1 ? strength.colorClass : 'bg-border'}`} />
-                <div className={`flex-1 rounded-full transition-colors duration-300 ${strength.score >= 2 ? strength.colorClass : 'bg-border'}`} />
-                <div className={`flex-1 rounded-full transition-colors duration-300 ${strength.score >= 3 ? strength.colorClass : 'bg-border'}`} />
-              </div>
-            </div>
-          )}
-          
-          {fieldErrors.password && (
-            <p className="text-xs text-error font-medium font-sans mt-0.5 break-words" role="alert">{fieldErrors.password}</p>
-          )}
+          <PasswordField
+            id="password"
+            label="Password"
+            placeholder="Minimum 8 characters"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="new-password"
+            required
+            disabled={isLoading}
+            error={fieldErrors.password}
+            extraElement={
+              password.length > 0 && (
+                <div className="flex flex-col gap-1.5 mt-1">
+                  <div className="flex justify-between items-center text-[10px] uppercase tracking-wider font-semibold">
+                    <span className="text-muted">Password Strength</span>
+                    <span className={
+                      strength.score === 1 ? 'text-error' :
+                      strength.score === 2 ? 'text-warning' :
+                      'text-success'
+                    }>{strength.label}</span>
+                  </div>
+                  <div className="flex gap-1 h-1.5 w-full">
+                    <div className={`flex-1 rounded-full transition-colors duration-300 ${strength.score >= 1 ? strength.colorClass : 'bg-border'}`} />
+                    <div className={`flex-1 rounded-full transition-colors duration-300 ${strength.score >= 2 ? strength.colorClass : 'bg-border'}`} />
+                    <div className={`flex-1 rounded-full transition-colors duration-300 ${strength.score >= 3 ? strength.colorClass : 'bg-border'}`} />
+                  </div>
+                </div>
+              )
+            }
+          />
         </div>
 
         {/* Confirm Password Field - Entrance Animation (Delay 160ms) */}
         <div 
-          className="flex flex-col gap-2.5 group animate-slideUpIn" 
+          className="animate-slideUpIn" 
           style={{ animationDelay: '160ms' }}
         >
-          <label 
-            className="text-xs font-bold text-muted uppercase tracking-wider font-sans" 
-            htmlFor="confirmPassword"
-          >
-            Confirm password
-          </label>
-          <div className="relative w-full group">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none w-5 h-5 flex items-center justify-center group-focus-within:text-primary transition-colors duration-150">
-              <LockSimple size={18} />
-            </div>
-            <input 
-              id="confirmPassword" 
-              type={showConfirmPassword ? "text" : "password"} 
-              placeholder="Repeat your password" 
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              autoComplete="new-password"
-              required
-              disabled={isLoading}
-              className={`w-full h-14 bg-surface border rounded-lg pr-12 text-foreground text-sm placeholder:text-muted/70 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-150 font-sans disabled:opacity-60 disabled:cursor-not-allowed ${
-                fieldErrors.confirmPassword ? 'border-error focus:border-error focus:ring-error/20' : 'border-border'
-              }`}
-              style={{ paddingLeft: '2.75rem' }}
-            />
-            {/* Password toggle button - disabled when loading */}
-            <button 
-              type="button"
-              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              disabled={isLoading}
-              className="absolute right-1 top-1/2 -translate-y-1/2 w-12 h-12 flex items-center justify-center text-muted hover:text-primary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface rounded-md transition-[transform,color] duration-150 ease-out active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label={showConfirmPassword ? 'Hide password' : 'Show password'}
-            >
-              {showConfirmPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
-          {fieldErrors.confirmPassword && (
-            <p className="text-xs text-error font-medium font-sans mt-0.5 break-words" role="alert">{fieldErrors.confirmPassword}</p>
-          )}
+          <PasswordField
+            id="confirmPassword"
+            label="Confirm password"
+            placeholder="Repeat your password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            autoComplete="new-password"
+            required
+            disabled={isLoading}
+            error={fieldErrors.confirmPassword}
+            className="bg-surface border-border"
+          />
         </div>
 
         {/* Submit Button - Entrance Animation (Delay 200ms) */}

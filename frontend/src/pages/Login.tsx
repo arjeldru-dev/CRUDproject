@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import api from '../lib/api';
-import { WarningCircle, EnvelopeSimple, LockSimple, Eye, EyeSlash, ArrowRight } from '@phosphor-icons/react';
+import { WarningCircle, EnvelopeSimple, ArrowRight } from '@phosphor-icons/react';
+import PasswordField from '../components/ui/PasswordField';
 
 /**
  * Login page — authenticates against POST /api/auth/login.
@@ -11,7 +12,6 @@ import { WarningCircle, EnvelopeSimple, LockSimple, Eye, EyeSlash, ArrowRight } 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -121,42 +121,19 @@ const Login: React.FC = () => {
 
         {/* Password Field - Entrance Animation (Delay 80ms) */}
         <div 
-          className="flex flex-col gap-2.5 group animate-slideUpIn" 
+          className="animate-slideUpIn" 
           style={{ animationDelay: '80ms' }}
         >
-          <label 
-            className="text-xs font-bold text-muted uppercase tracking-wider font-sans" 
-            htmlFor="password"
-          >
-            Password
-          </label>
-          <div className="relative w-full group">
-            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-muted pointer-events-none w-5 h-5 flex items-center justify-center group-focus-within:text-primary transition-colors duration-150">
-              <LockSimple size={18} />
-            </div>
-            <input 
-              id="password" 
-              type={showPassword ? "text" : "password"} 
-              placeholder="••••••••" 
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="current-password"
-              required
-              disabled={isLoading}
-              className="w-full h-14 bg-surface-hover border border-border rounded-lg pr-12 text-foreground text-sm placeholder:text-muted/70 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-150 font-sans disabled:opacity-60 disabled:cursor-not-allowed"
-              style={{ paddingLeft: '2.75rem' }}
-            />
-            {/* Password toggle button - disabled when loading */}
-            <button 
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              disabled={isLoading}
-              className="absolute right-1 top-1/2 -translate-y-1/2 w-12 h-12 flex items-center justify-center text-muted hover:text-primary cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface rounded-md transition-[transform,color] duration-150 ease-out active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
-              aria-label={showPassword ? 'Hide password' : 'Show password'}
-            >
-              {showPassword ? <EyeSlash size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
+          <PasswordField
+            id="password"
+            label="Password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete="current-password"
+            required
+            disabled={isLoading}
+          />
         </div>
 
         {/* Remember Me Checkbox - Entrance Animation (Delay 120ms) */}

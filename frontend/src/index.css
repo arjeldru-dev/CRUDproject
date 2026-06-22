@@ -507,8 +507,6 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* Neon glow / shimmer — intentionally killed to align with minimalist theme; safe to delete once all markup references are removed */
-.neon-glow { }
-.shimmer-pill { }
 .noise-overlay::before { display: none; }
 
 /* ── Accessibility & Typography Additions ── */
@@ -848,10 +846,36 @@ input.bg-surface:-webkit-autofill:active {
     opacity: 0.85;
   }
 }
-
 .avatar-interactive-btn:active {
   transform: scale(0.95);
   transition-duration: 80ms;
 }
 
 
+/* ── Browser Native Input Overrides ── */
+
+/* Hide Safari's credentials and contacts autofill buttons */
+input::-webkit-contacts-auto-fill-button,
+input::-webkit-credentials-auto-fill-button {
+  visibility: hidden;
+  display: none !important;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  height: 0;
+  width: 0;
+  margin: 0;
+}
+
+/* Hide Microsoft Edge / IE's native password reveal and clear buttons */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none !important;
+}
+
+/* Hide Safari/WebKit's search cancel and clear buttons (iOS) */
+input::-webkit-search-cancel-button,
+input::-webkit-clear-button {
+  display: none !important;
+  -webkit-appearance: none;
+}
