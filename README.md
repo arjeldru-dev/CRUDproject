@@ -103,18 +103,11 @@ fill out the details:
   confirm the transaction has been securely calculated and recorded in the
   database.
 
-### 4. Adding Friends & Managing Ghost Profiles
+### 4. Adding Friends & Moderation
 
 - **Adding Real Users:** Search for active users by typing their usernames in
   the search bar on the **Friends** page, and click **Send Friend Request**.
   Once accepted, they appear in your active friends listing.
-- **Ghost Profiles (Offline Friends):** If your friend hasn't registered an
-  account yet, create a **Ghost Profile** for them on the Friends page. You can
-  record splits with this ghost profile immediately to keep balances accurate.
-- **Claiming Ghost Profiles:** Once your friend signs up for a real account,
-  find their ghost profile card on your Friends page and click **Claim
-  Profile**. Enter their real username to merge all historical split balances
-  directly into their new account!
 - **Blocking & Moderation:** Protect your privacy by utilizing the **Block
   User** or **Report User** triggers on a friend's profile.
 
@@ -193,9 +186,7 @@ The relational database layer managed by Prisma consists of 19 models:
 - **`FriendRequest`:** Tracks incoming/outgoing peer friendship requests and
   their state (`PENDING`, `ACCEPTED`, `DECLINED`).
 - **`Friendship`:** Direct relationship records mapping linked users.
-- **`FriendProfile`:** Used for tracking ledger balances. Maps either a
-  registered user on the platform or an offline placeholder ghost client
-  (`isGhost: true`).
+- **`FriendProfile`:** Used for tracking ledger balances. Maps a registered user on the platform.
 - **`Category`:** Budget categories with customizable spending limits.
 - **`Transaction`:** Base record of ledger activity. Can be an `EXPENSE`,
   `SETTLEMENT`, or `TOP_UP`.
@@ -257,9 +248,6 @@ header (`Authorization: Bearer <token>`).
 
 | Method   | Path                               | Description                                                         | Access    |
 | :------- | :--------------------------------- | :------------------------------------------------------------------ | :-------- |
-| `POST`   | `/api/friends/`                    | Registers a legacy ghost client profile.                            | Protected |
-| `GET`    | `/api/friends/`                    | Lists legacy ghost client profiles.                                 | Protected |
-| `DELETE` | `/api/friends/ghost/:id`           | Deletes a ghost profile.                                            | Protected |
 | `GET`    | `/api/friends/search`              | Searches other users by username.                                   | Protected |
 | `POST`   | `/api/friends/request`             | Sends a friend request to another user.                             | Protected |
 | `GET`    | `/api/friends/requests/received`   | Lists received pending friend requests.                             | Protected |
@@ -268,7 +256,6 @@ header (`Authorization: Bearer <token>`).
 | `POST`   | `/api/friends/request/:id/decline` | Declines a pending friend request.                                  | Protected |
 | `DELETE` | `/api/friends/request/:id/cancel`  | Cancels a sent friend request.                                      | Protected |
 | `GET`    | `/api/friends/list`                | Returns a list of active friends and balances.                      | Protected |
-| `POST`   | `/api/friends/ghost/:id/claim`     | Claims/merges a ghost profile with a newly registered user account. | Protected |
 | `POST`   | `/api/friends/invite`              | Sends a friend invite to an email address.                          | Protected |
 | `DELETE` | `/api/friends/:friendshipId`       | Removes an active friendship connection.                            | Protected |
 | `POST`   | `/api/friends/block/:userId`       | Blocks a user.                                                      | Protected |
