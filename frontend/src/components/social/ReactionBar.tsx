@@ -1,5 +1,9 @@
-import { ThumbsUp, Heart, Flame, Sparkles, Trophy, Smile } from 'lucide-react';
+import { useState } from 'react';
 import { useFeedStore } from '../../store/feedStore';
+import ReactionPicker from './ReactionPicker';
+import { ReactionGlyph } from './ReactionGlyph';
+import { REACTION_LABELS } from './reactionMeta';
+import ReactorsModal from './ReactorsModal';
 
 interface ReactionBarProps {
   postId: string;
@@ -10,73 +14,58 @@ interface ReactionBarProps {
   }>;
 }
 
-const emojiLabels: Record<string, string> = {
-  '👍': 'Like',
-  '❤️': 'Love',
-  '🔥': 'Fire',
-  '😮': 'Wow',
-  '🏆': 'Trophy',
-  '🙏': 'Thank you',
-};
-
-const getReactionIcon = (emoji: string, isActive: boolean) => {
-  const cls = `w-4 h-4 transition-colors ${isActive ? 'text-primary' : 'text-muted group-hover:text-foreground'}`;
-  switch (emoji) {
-    case '👍': return <ThumbsUp className={cls} />;
-    case '❤️': return <Heart className={cls} />;
-    case '🔥': return <Flame className={cls} />;
-    case '😮': return <Sparkles className={cls} />;
-    case '🏆': return <Trophy className={cls} />;
-    case '🙏': return <Smile className={cls} />;
-    default: return null;
-  }
-};
-
 const ReactionBar: React.FC<ReactionBarProps> = ({ postId, reactions }) => {
   const reactToPost = useFeedStore((state) => state.reactToPost);
+  const fetchPostReactors = useFeedStore((state) => state.fetchPostReactors);
+  const [showReactors, setShowReactors] = useState(false);
 
-  const emojis = ['👍', '❤️', '🔥', '😮', '🏆', '🙏'];
+  const total = reactions.reduce((sum, r) => sum + r.count, 0);
+  const userReaction = reactions.find((r) => r.userReacted)?.emoji ?? null;
+  const topEmojis = [...reactions].sort((a, b) => b.count - a.count).slice(0, 3).map((r) => r.emoji);
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {/* Active & Inactive Reaction Pills */}
-      {reactions.map((r) => (
+    <div className="flex items-center gap-2 flex-wrap">
+      {/* React trigger with hover/long-press picker */}
+      <ReactionPicker
+        onReact={(emoji) => reactToPost(postId, emoji)}
+        quickEmoji={userReaction ?? '👍'}
+        triggerAriaLabel={userReaction ? `Your reaction: ${REACTION_LABELS[userReaction]}` : 'React'}
+        triggerClassName={`group px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold transition-colors duration-150 active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 ${
+          userReaction ? 'bg-primary/10 text-primary' : 'bg-surface-hover/60 hover:bg-surface-hover text-muted'
+        }`}
+      >
+        <ReactionGlyph emoji={userReaction ?? '👍'} className="w-4 h-4" />
+        <span>{userReaction ? REACTION_LABELS[userReaction] : 'React'}</span>
+      </ReactionPicker>
+
+      {/* Reaction summary — opens the "who reacted" modal */}
+      {total > 0 && (
         <button
-          key={r.emoji}
-          onClick={() => reactToPost(postId, r.emoji)}
-          className={`group px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-bold transition-all duration-120 ease-out [@media(hover:hover)_and_(pointer:fine)]:hover:scale-105 active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 ${
-            r.userReacted
-              ? 'bg-primary/10 text-primary'
-              : 'bg-surface-hover/60 hover:bg-surface-hover text-foreground'
-          }`}
-          aria-label={`${r.userReacted ? 'Remove' : 'React with'} ${emojiLabels[r.emoji] || 'reaction'}, count: ${r.count}`}
+          type="button"
+          onClick={() => setShowReactors(true)}
+          className="flex items-center gap-1.5 px-2 py-1 rounded-full hover:bg-surface-hover transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30"
+          aria-label={`See who reacted (${total})`}
         >
-          <span className="flex items-center justify-center shrink-0">
-            {getReactionIcon(r.emoji, r.userReacted)}
+          <span className="flex items-center">
+            {topEmojis.map((emoji, i) => (
+              <span
+                key={emoji}
+                className="w-5 h-5 rounded-full bg-surface flex items-center justify-center text-primary shadow-sm"
+                style={{ marginLeft: i === 0 ? 0 : -6, zIndex: topEmojis.length - i }}
+              >
+                <ReactionGlyph emoji={emoji} className="w-3 h-3" />
+              </span>
+            ))}
           </span>
-          <span className="font-mono">{r.count}</span>
+          <span className="text-xs font-semibold text-muted font-mono">{total}</span>
         </button>
-      ))}
+      )}
 
-      {/* Add Reaction Picker (Inline) */}
-      <div className="flex items-center gap-1 ml-2.5">
-        {emojis.map((emoji) => {
-          const hasReacted = reactions.find((r) => r.emoji === emoji)?.userReacted;
-          if (hasReacted) return null;
-
-          return (
-            <button
-              key={emoji}
-              onClick={() => reactToPost(postId, emoji)}
-              className="w-10 h-10 flex items-center justify-center rounded-full [@media(hover:hover)_and_(pointer:fine)]:hover:scale-120 [@media(hover:hover)_and_(pointer:fine)]:hover:bg-surface-hover transition-all duration-120 ease-out active:scale-95 focus:outline-none focus:ring-2 focus:ring-primary/30 text-base grayscale [@media(hover:hover)_and_(pointer:fine)]:hover:grayscale-0"
-              title={`React with ${emojiLabels[emoji] || 'reaction'}`}
-              aria-label={`React with ${emojiLabels[emoji] || 'reaction'}`}
-            >
-              {getReactionIcon(emoji, false)}
-            </button>
-          );
-        })}
-      </div>
+      <ReactorsModal
+        isOpen={showReactors}
+        onClose={() => setShowReactors(false)}
+        fetchReactors={() => fetchPostReactors(postId)}
+      />
     </div>
   );
 };

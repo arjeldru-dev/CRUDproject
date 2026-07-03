@@ -1,7 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Bell, CheckCheck, Loader2, AlertCircle } from 'lucide-react';
 import { useNotificationStore } from '../store/notificationStore';
+import { useAuthStore } from '../store/authStore';
+import { hasUnseenUpdate, markUpdatesSeen } from '../lib/updates';
 import NotificationItem from '../components/social/NotificationItem';
+import UpdateNotificationItem from '../components/social/UpdateNotificationItem';
 import { useInView } from 'react-intersection-observer';
 
 const Notifications: React.FC = () => {
@@ -14,6 +17,17 @@ const Notifications: React.FC = () => {
     unreadCount,
     nextCursor
   } = useNotificationStore();
+  const userId = useAuthStore((s) => s.user?.id);
+  const [, forceRecheck] = useState(0);
+
+  const updateUnseen = hasUnseenUpdate(userId);
+  const combinedUnread = unreadCount + (updateUnseen ? 1 : 0);
+
+  const handleMarkAllRead = () => {
+    markAllAsRead();
+    markUpdatesSeen(userId);
+    forceRecheck((n) => n + 1);
+  };
 
   const { ref, inView } = useInView({
     threshold: 0.1,
@@ -43,9 +57,9 @@ const Notifications: React.FC = () => {
           </p>
         </div>
         
-        {unreadCount > 0 && (
+        {combinedUnread > 0 && (
           <button
-            onClick={() => markAllAsRead()}
+            onClick={handleMarkAllRead}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-surface border border-border rounded-lg text-primary hover:bg-surface-hover text-sm font-semibold cursor-pointer btn-press"
           >
             <CheckCheck className="w-4 h-4" />
@@ -73,33 +87,37 @@ const Notifications: React.FC = () => {
 
       {/* Notifications List Container */}
       <div className="bg-surface rounded-lg border border-border overflow-hidden transition-all duration-200">
-        {notifications.length === 0 && !loading && !error ? (
-          <div className="flex flex-col items-center justify-center py-20 px-8 text-center text-muted">
+        <ul className="flex flex-col">
+          {/* Persistent "What's New" entry, always shown at the top */}
+          <li className="block">
+            <UpdateNotificationItem />
+          </li>
+          {notifications.map((notification, index) => (
+            <li key={notification.id} className="block">
+              <NotificationItem
+                notification={notification}
+                index={index}
+              />
+            </li>
+          ))}
+
+          {nextCursor && (
+            <li ref={ref} className="py-6 flex justify-center border-t border-border/60 bg-surface">
+              <Loader2 className="w-6 h-6 text-primary animate-spin" />
+            </li>
+          )}
+        </ul>
+
+        {notifications.length === 0 && !loading && !error && (
+          <div className="flex flex-col items-center justify-center py-14 px-8 text-center text-muted border-t border-border/60">
             <div className="w-12 h-12 bg-surface-hover rounded-full flex items-center justify-center mb-4">
               <Bell className="w-6 h-6 text-muted" />
             </div>
-            <h3 className="font-display text-base font-bold text-foreground mb-1">No notifications yet</h3>
+            <h3 className="font-display text-base font-bold text-foreground mb-1">No other notifications yet</h3>
             <p className="max-w-xs mx-auto text-sm text-muted">
               When friends interact with you or your expenses, you'll see them here.
             </p>
           </div>
-        ) : (
-          <ul className="flex flex-col">
-            {notifications.map((notification, index) => (
-              <li key={notification.id} className="block">
-                <NotificationItem
-                  notification={notification}
-                  index={index}
-                />
-              </li>
-            ))}
-            
-            {nextCursor && (
-              <li ref={ref} className="py-6 flex justify-center border-t border-border/60 bg-surface">
-                <Loader2 className="w-6 h-6 text-primary animate-spin" />
-              </li>
-            )}
-          </ul>
         )}
       </div>
       

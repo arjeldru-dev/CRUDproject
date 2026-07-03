@@ -4,8 +4,19 @@ import { Prisma } from '@prisma/client';
 import { feedService } from '../services/feedService';
 import { createNotification } from '../services/notificationService';
 import { generateSpendingForecast } from '../services/forecastingService';
-import { gamificationService, getLocalDateParts, getUtcDateOfLocalTime } from '../services/gamificationService';
+import { gamificationService } from '../services/gamificationService';
+import { getPeriodWindow } from '../services/budgetPeriodService';
 import crypto from 'crypto';
+
+/** Returns true if the string is a valid IANA timezone the runtime accepts. */
+function isValidTimeZone(tz: string): boolean {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * POST /api/transactions
@@ -194,7 +205,14 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
                 data: {
                   userId: payerUserId,
                   name: targetCategory.name,
-                  monthlyLimit: targetCategory.monthlyLimit,
+                  limitAmount: targetCategory.limitAmount,
+                  // Copy the full period config so the friend's mirror category
+                  // tracks on the same cadence as the original.
+                  period: targetCategory.period,
+                  monthlyStartDay: targetCategory.monthlyStartDay,
+                  weeklyStartDay: targetCategory.weeklyStartDay,
+                  customPeriodDays: targetCategory.customPeriodDays,
+                  anchorDate: targetCategory.anchorDate,
                 },
               });
             }
@@ -778,100 +796,131 @@ export const getBalances = async (req: Request, res: Response) => {
 
 /**
  * GET /api/transactions/budget
- * Returns budget status per category for the current calendar month.
- * Shows monthlyLimit, total spent (BUDGET_DEDUCTION), and remaining.
+ * Returns budget status per category for that category's own recurring period
+ * (daily / weekly / monthly / custom). Shows limitAmount, spent
+ * (BUDGET_DEDUCTION within the window), remaining, and the forecast.
+ *
+ * Query params: `timezone` (IANA, optional) and `now` (ISO, optional — for testing).
  */
 export const getBudgetStatus = async (req: Request, res: Response) => {
   try {
     const userId: string = req.user.id;
 
-    // Get all categories for the user
     const categories = await prisma.category.findMany({
       where: { userId },
-      select: { id: true, name: true, monthlyLimit: true },
+      select: {
+        id: true,
+        name: true,
+        limitAmount: true,
+        period: true,
+        monthlyStartDay: true,
+        weeklyStartDay: true,
+        customPeriodDays: true,
+        anchorDate: true,
+      },
     });
 
-    // Get client timezone parameters if provided, fallback to server time
-    const reqMonthStart = req.query.monthStart as string;
-    const reqMonthEnd = req.query.monthEnd as string;
-    const reqNow = req.query.now as string;
-    const reqDaysInMonth = req.query.daysInMonth as string;
+    if (categories.length === 0) {
+      return res.status(200).json({ budgetStatuses: [] });
+    }
 
-    const parseDateSafe = (dateStr: string | undefined, fallback: Date) => {
-      if (!dateStr) return fallback;
-      const parsed = new Date(dateStr);
-      return isNaN(parsed.getTime()) ? fallback : parsed;
-    };
+    // Resolve timezone: request param → stored → UTC (never throw on bad input).
+    const reqTz = req.query.timezone as string | undefined;
+    let timezone = 'UTC';
+    if (reqTz && isValidTimeZone(reqTz)) {
+      timezone = reqTz;
+    } else {
+      const gamification = await prisma.userGamification.findUnique({
+        where: { userId },
+        select: { timezone: true },
+      });
+      if (gamification?.timezone) timezone = gamification.timezone;
+    }
 
-    const now = parseDateSafe(reqNow, new Date());
-    const monthStart = parseDateSafe(reqMonthStart, new Date(now.getFullYear(), now.getMonth(), 1));
-    const monthEnd = parseDateSafe(reqMonthEnd, new Date(now.getFullYear(), now.getMonth() + 1, 1));
+    const reqNow = req.query.now as string | undefined;
+    const parsedNow = reqNow ? new Date(reqNow) : new Date();
+    const now = isNaN(parsedNow.getTime()) ? new Date() : parsedNow;
 
-    // Forecasting metrics: Calculate whole days elapsed to prevent the projection from changing every minute
-    const timeElapsedMs = now.getTime() - monthStart.getTime();
-    
-    // Floor to get completed 24-hour periods, add 1 to represent the current day
-    const currentDay = Math.floor(timeElapsedMs / (1000 * 60 * 60 * 24)) + 1;
-    
-    const daysInMonthSafe = reqDaysInMonth && !isNaN(parseInt(reqDaysInMonth, 10)) 
-      ? parseInt(reqDaysInMonth, 10) 
-      : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    
-    // Clamp to at least 1 to prevent division by zero or infinite spikes on day 1
-    const daysElapsed = Math.max(1, currentDay); 
-    const daysRemaining = Math.max(0, daysInMonthSafe - currentDay);
+    // Compute each category's active window.
+    const windows = categories.map((category) => ({
+      category,
+      window: getPeriodWindow(
+        category.period,
+        {
+          monthlyStartDay: category.monthlyStartDay,
+          weeklyStartDay: category.weeklyStartDay,
+          customPeriodDays: category.customPeriodDays,
+          anchorDate: category.anchorDate,
+        },
+        now,
+        timezone
+      ),
+    }));
 
-    // Fetch all deductions for the month in one query to avoid N+1 queries
+    // Single bounded query over the union of all windows to avoid N+1.
+    const minStart = new Date(Math.min(...windows.map((w) => w.window.periodStart.getTime())));
+    const maxEnd = new Date(Math.max(...windows.map((w) => w.window.periodEnd.getTime())));
+
     const allDeductions = await prisma.ledgerEntry.findMany({
       where: {
         userId,
         type: 'BUDGET_DEDUCTION',
         transaction: {
-          createdAt: {
-            gte: monthStart,
-            lt: monthEnd,
-          },
+          createdAt: { gte: minStart, lt: maxEnd },
         },
       },
       include: {
-        transaction: {
-          select: { categoryId: true },
-        },
+        transaction: { select: { categoryId: true, createdAt: true } },
       },
     });
 
-    // Group spent amounts by categoryId in memory
-    const spentByCategory = allDeductions.reduce((acc, entry) => {
+    // Bucket each deduction into the category whose window contains its timestamp.
+    const windowByCategory = new Map(windows.map((w) => [w.category.id, w.window]));
+    const spentByCategory: Record<string, number> = {};
+    for (const entry of allDeductions) {
       const catId = entry.transaction?.categoryId;
-      if (catId) {
-        acc[catId] = (acc[catId] || 0) + new Prisma.Decimal(entry.amountChange.toString()).toNumber();
+      const createdAt = entry.transaction?.createdAt;
+      if (!catId || !createdAt) continue;
+      const win = windowByCategory.get(catId);
+      if (!win) continue;
+      const t = createdAt.getTime();
+      if (t >= win.periodStart.getTime() && t < win.periodEnd.getTime()) {
+        spentByCategory[catId] =
+          (spentByCategory[catId] || 0) + new Prisma.Decimal(entry.amountChange.toString()).toNumber();
       }
-      return acc;
-    }, {} as Record<string, number>);
+    }
 
-    // Map categories synchronously
-    const budgetStatuses = categories.map((category) => {
-        const spent = spentByCategory[category.id] || 0;
-        const monthlyLimit = new Prisma.Decimal(category.monthlyLimit.toString()).toNumber();
-        const remaining = monthlyLimit - spent;
+    const budgetStatuses = windows.map(({ category, window }) => {
+      const spent = spentByCategory[category.id] || 0;
+      const limitAmount = new Prisma.Decimal(category.limitAmount.toString()).toNumber();
+      const remaining = limitAmount - spent;
 
-        // --- Heuristic Spending Forecasting Engine ---
-        const forecast = generateSpendingForecast({
-          spent,
-          monthlyLimit,
-          daysElapsed,
-          daysRemaining,
-          categoryName: category.name,
-        });
+      // --- Heuristic Spending Forecasting Engine ---
+      const forecast = generateSpendingForecast({
+        spent,
+        limitAmount,
+        daysElapsed: window.daysElapsed,
+        daysRemaining: window.daysRemaining,
+        categoryName: category.name,
+        periodLabel: window.periodLabel,
+      });
 
-        return {
-          categoryId: category.id,
-          categoryName: category.name,
-          monthlyLimit,
-          spent,
-          remaining,
-          ...forecast,
-        };
+      return {
+        categoryId: category.id,
+        categoryName: category.name,
+        limitAmount,
+        period: category.period,
+        monthlyStartDay: category.monthlyStartDay,
+        weeklyStartDay: category.weeklyStartDay,
+        customPeriodDays: category.customPeriodDays,
+        anchorDate: category.anchorDate ? category.anchorDate.toISOString() : null,
+        periodLabel: window.periodLabel,
+        periodStart: window.periodStart.toISOString(),
+        periodEnd: window.periodEnd.toISOString(),
+        spent,
+        remaining,
+        ...forecast,
+      };
     });
 
     return res.status(200).json({ budgetStatuses });
@@ -968,7 +1017,14 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
   try {
     const category = await prisma.category.findUnique({
       where: { id: categoryId },
-      select: { monthlyLimit: true },
+      select: {
+        limitAmount: true,
+        period: true,
+        monthlyStartDay: true,
+        weeklyStartDay: true,
+        customPeriodDays: true,
+        anchorDate: true,
+      },
     });
 
     if (!category) return;
@@ -979,12 +1035,18 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
     });
     const timezone = gamification?.timezone || 'UTC';
 
-    const now = new Date();
-    const parts = getLocalDateParts(now, timezone);
-    const monthStart = getUtcDateOfLocalTime(parts.year, parts.month, 1, 0, 0, 0, timezone);
-    const nextMonthYear = parts.month === 12 ? parts.year + 1 : parts.year;
-    const nextMonth = parts.month === 12 ? 1 : parts.month + 1;
-    const monthEnd = getUtcDateOfLocalTime(nextMonthYear, nextMonth, 1, 0, 0, 0, timezone);
+    // Compute milestone against the category's own period window.
+    const window = getPeriodWindow(
+      category.period,
+      {
+        monthlyStartDay: category.monthlyStartDay,
+        weeklyStartDay: category.weeklyStartDay,
+        customPeriodDays: category.customPeriodDays,
+        anchorDate: category.anchorDate,
+      },
+      new Date(),
+      timezone
+    );
 
     const deductions = await prisma.ledgerEntry.aggregate({
       where: {
@@ -993,8 +1055,8 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
         transaction: {
           categoryId,
           createdAt: {
-            gte: monthStart,
-            lt: monthEnd,
+            gte: window.periodStart,
+            lt: window.periodEnd,
           },
         },
       },
@@ -1004,7 +1066,7 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
     const currentSpent = deductions._sum.amountChange
       ? new Prisma.Decimal(deductions._sum.amountChange.toString()).toNumber()
       : 0;
-    const limit = category.monthlyLimit.toNumber();
+    const limit = category.limitAmount.toNumber();
 
     if (limit <= 0) return;
 

@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import api from '../lib/api';
 import Button from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { getCategoryColor } from '../components/ui/SpendingDonutChart';
+import { getCategoryColor } from '../components/ui/categoryColor';
+import { periodName } from '../lib/budgetPeriod';
 import {
   Wallet,
   Plus,
@@ -22,17 +23,176 @@ import {
   Trash2,
 } from 'lucide-react';
 
+type BudgetPeriod = 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'CUSTOM';
+
 /** Shape of category budget status returned by /transactions/budget */
 interface CategoryBudget {
   categoryId: string;
   categoryName: string;
-  monthlyLimit: number;
+  limitAmount: number;
+  period: BudgetPeriod;
+  monthlyStartDay: number | null;
+  weeklyStartDay: number | null;
+  customPeriodDays: number | null;
+  anchorDate: string | null;
+  periodLabel?: string;
   spent: number;
   remaining: number;
   status?: string;
   insightText?: string;
   alertText?: string;
 }
+
+/** Local form state for the period configuration (shared by create + edit). */
+interface PeriodFormState {
+  period: BudgetPeriod;
+  monthlyStartDay: number | null; // null = 1st (default); -1 = last day; else 1–31
+  weeklyStartDay: number;         // 0=Sunday … 6=Saturday
+  customPeriodDays: string;       // raw input
+  anchorDate: string;             // YYYY-MM-DD
+}
+
+const DEFAULT_PERIOD_FORM: PeriodFormState = {
+  period: 'MONTHLY',
+  monthlyStartDay: null,
+  weeklyStartDay: 0,
+  customPeriodDays: '',
+  anchorDate: '',
+};
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const PERIOD_OPTIONS: { value: BudgetPeriod; label: string }[] = [
+  { value: 'DAILY', label: 'Daily' },
+  { value: 'WEEKLY', label: 'Weekly' },
+  { value: 'MONTHLY', label: 'Monthly' },
+  { value: 'CUSTOM', label: 'Custom' },
+];
+
+/** Convert period form state into an API payload, mirroring server validation. */
+function buildPeriodPayload(p: PeriodFormState): { payload: Record<string, unknown>; error: string | null } {
+  const payload: Record<string, unknown> = { period: p.period };
+  if (p.period === 'WEEKLY') {
+    payload.weeklyStartDay = p.weeklyStartDay;
+  } else if (p.period === 'MONTHLY') {
+    payload.monthlyStartDay = p.monthlyStartDay; // null → server treats as the 1st
+  } else if (p.period === 'CUSTOM') {
+    const days = parseInt(p.customPeriodDays, 10);
+    if (isNaN(days) || days < 1 || days > 366) {
+      return { payload, error: 'Enter a cycle length between 1 and 366 days.' };
+    }
+    if (!p.anchorDate) {
+      return { payload, error: 'Pick a start date for the custom cycle.' };
+    }
+    payload.customPeriodDays = days;
+    payload.anchorDate = p.anchorDate;
+  }
+  return { payload, error: null };
+}
+
+const periodControlClass =
+  'w-full h-11 bg-background border border-border rounded-xl px-3 text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition-[border-color,box-shadow] duration-200 ease-out text-sm';
+
+interface PeriodControlsProps {
+  value: PeriodFormState;
+  onChange: (next: PeriodFormState) => void;
+  idPrefix: string;
+}
+
+/** Period selector + conditional sub-fields, reused by the create form and inline edit. */
+const PeriodControls: React.FC<PeriodControlsProps> = ({ value, onChange, idPrefix }) => {
+  const set = (patch: Partial<PeriodFormState>) => onChange({ ...value, ...patch });
+  return (
+    <>
+      <div className="flex flex-col gap-2">
+        <label htmlFor={`${idPrefix}-period`} className="block text-xs font-bold font-display text-muted uppercase tracking-wider">
+          Budget Period
+        </label>
+        <select
+          id={`${idPrefix}-period`}
+          value={value.period}
+          onChange={(e) => set({ period: e.target.value as BudgetPeriod })}
+          className={periodControlClass}
+          aria-label="Budget period"
+        >
+          {PERIOD_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {value.period === 'WEEKLY' && (
+        <div className="flex flex-col gap-2">
+          <label htmlFor={`${idPrefix}-weekstart`} className="block text-xs font-bold font-display text-muted uppercase tracking-wider">
+            Week starts on
+          </label>
+          <select
+            id={`${idPrefix}-weekstart`}
+            value={value.weeklyStartDay}
+            onChange={(e) => set({ weeklyStartDay: parseInt(e.target.value, 10) })}
+            className={periodControlClass}
+          >
+            {WEEKDAY_NAMES.map((d, i) => (
+              <option key={i} value={i}>{d}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {value.period === 'MONTHLY' && (
+        <div className="flex flex-col gap-2">
+          <label htmlFor={`${idPrefix}-monthstart`} className="block text-xs font-bold font-display text-muted uppercase tracking-wider">
+            Month starts on
+          </label>
+          <select
+            id={`${idPrefix}-monthstart`}
+            value={value.monthlyStartDay === null ? '' : String(value.monthlyStartDay)}
+            onChange={(e) => set({ monthlyStartDay: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+            className={periodControlClass}
+          >
+            <option value="">1st of month (default)</option>
+            {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => (
+              <option key={d} value={d}>{`Day ${d}`}</option>
+            ))}
+            <option value="-1">Last day of month</option>
+          </select>
+          <p className="text-[10px] text-muted/70">Days 29–31 fall back to the last day in shorter months.</p>
+        </div>
+      )}
+
+      {value.period === 'CUSTOM' && (
+        <>
+          <div className="flex flex-col gap-2">
+            <label htmlFor={`${idPrefix}-customdays`} className="block text-xs font-bold font-display text-muted uppercase tracking-wider">
+              Every N days
+            </label>
+            <input
+              id={`${idPrefix}-customdays`}
+              type="number"
+              min={1}
+              max={366}
+              value={value.customPeriodDays}
+              onChange={(e) => set({ customPeriodDays: e.target.value })}
+              placeholder="14"
+              className={periodControlClass}
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <label htmlFor={`${idPrefix}-anchor`} className="block text-xs font-bold font-display text-muted uppercase tracking-wider">
+              Starting
+            </label>
+            <input
+              id={`${idPrefix}-anchor`}
+              type="date"
+              value={value.anchorDate}
+              onChange={(e) => set({ anchorDate: e.target.value })}
+              className={periodControlClass}
+            />
+          </div>
+        </>
+      )}
+    </>
+  );
+};
 
 /** Global performance optimization: Avoid recreating Intl.NumberFormat on every render */
 const currencyFormatter = new Intl.NumberFormat('en-PH', {
@@ -145,12 +305,14 @@ const Categories: React.FC = () => {
   const [showForm, setShowForm] = useState(false);
   const [formName, setFormName] = useState('');
   const [formLimit, setFormLimit] = useState('');
+  const [formPeriod, setFormPeriod] = useState<PeriodFormState>(DEFAULT_PERIOD_FORM);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
 
   // ── Inline Edit State ───────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editLimit, setEditLimit] = useState('');
+  const [editPeriod, setEditPeriod] = useState<PeriodFormState>(DEFAULT_PERIOD_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [editErrorId, setEditErrorId] = useState<string | null>(null);
 
@@ -168,15 +330,8 @@ const Categories: React.FC = () => {
   const fetchCategories = useCallback(async () => {
     try {
       setError('');
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
-      const clientNow = now.toISOString();
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-
-      const res = await api.get(
-        `/transactions/budget?monthStart=${monthStart}&monthEnd=${monthEnd}&now=${clientNow}&daysInMonth=${daysInMonth}`
-      );
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const res = await api.get(`/transactions/budget?timezone=${encodeURIComponent(timezone)}`);
       setCategories(res.data.budgetStatuses || []);
     } catch (err) {
       console.error('Failed to load categories:', err);
@@ -207,11 +362,17 @@ const Categories: React.FC = () => {
       return;
     }
     if (isNaN(limit) || limit < 0) {
-      setFormError('Monthly limit must be a non-negative number.');
+      setFormError('Budget limit must be a non-negative number.');
       return;
     }
     if (limit > 999999999) {
-      setFormError('Monthly limit cannot exceed ₱999,999,999.');
+      setFormError('Budget limit cannot exceed ₱999,999,999.');
+      return;
+    }
+
+    const { payload: periodPayload, error: periodError } = buildPeriodPayload(formPeriod);
+    if (periodError) {
+      setFormError(periodError);
       return;
     }
 
@@ -219,10 +380,12 @@ const Categories: React.FC = () => {
     try {
       await api.post('/categories', {
         name: trimmedName,
-        monthlyLimit: limit,
+        limitAmount: limit,
+        ...periodPayload,
       });
       setFormName('');
       setFormLimit('');
+      setFormPeriod(DEFAULT_PERIOD_FORM);
       setShowForm(false);
       fetchCategories();
     } catch (err) {
@@ -233,14 +396,16 @@ const Categories: React.FC = () => {
     }
   };
 
-  // ── Update Monthly Limit ────────────────────────────────────────────
-  const handleSaveLimit = async (categoryId: string) => {
+  // ── Update Limit + Period ───────────────────────────────────────────
+  const handleSaveCategory = async (categoryId: string) => {
     const newLimit = parseFloat(editLimit);
-    if (isNaN(newLimit) || newLimit < 0) {
+    if (isNaN(newLimit) || newLimit < 0 || newLimit > 999999999) {
       setEditErrorId(categoryId);
       return;
     }
-    if (newLimit > 999999999) {
+
+    const { payload: periodPayload, error: periodError } = buildPeriodPayload(editPeriod);
+    if (periodError) {
       setEditErrorId(categoryId);
       return;
     }
@@ -249,7 +414,8 @@ const Categories: React.FC = () => {
     setEditErrorId(null);
     try {
       await api.patch(`/categories/${categoryId}`, {
-        monthlyLimit: newLimit,
+        limitAmount: newLimit,
+        ...periodPayload,
       });
       setEditingId(null);
       fetchCategories();
@@ -279,7 +445,14 @@ const Categories: React.FC = () => {
 
   const startEditing = (cat: CategoryBudget) => {
     setEditingId(cat.categoryId);
-    setEditLimit(cat.monthlyLimit.toString());
+    setEditLimit(cat.limitAmount.toString());
+    setEditPeriod({
+      period: cat.period,
+      monthlyStartDay: cat.monthlyStartDay,
+      weeklyStartDay: cat.weeklyStartDay ?? 0,
+      customPeriodDays: cat.customPeriodDays != null ? String(cat.customPeriodDays) : '',
+      anchorDate: cat.anchorDate ? cat.anchorDate.slice(0, 10) : '',
+    });
     setEditErrorId(null);
   };
 
@@ -334,7 +507,7 @@ const Categories: React.FC = () => {
           Budget Categories
         </h1>
         <p className="font-sans text-base text-muted mt-1">
-          Define your spending targets and monthly targets
+          Define your spending limits and budget periods
         </p>
       </div>
 
@@ -426,7 +599,7 @@ const Categories: React.FC = () => {
 
               <div className="flex flex-col gap-2">
                 <label htmlFor="category-limit-input" className="block text-xs font-bold font-display text-muted uppercase tracking-wider">
-                  Monthly Limit (₱)
+                  Budget Limit (₱)
                 </label>
                 <input
                   type="number"
@@ -439,6 +612,8 @@ const Categories: React.FC = () => {
                   id="category-limit-input"
                 />
               </div>
+
+              <PeriodControls value={formPeriod} onChange={setFormPeriod} idPrefix="create" />
 
               <div className="flex gap-3 mt-4">
                 <Button
@@ -551,8 +726,8 @@ const Categories: React.FC = () => {
                 const isEditing = editingId === cat.categoryId;
                 const meta = getCategoryMeta(cat.categoryName);
                 const Icon = meta.icon;
-                const percent = cat.monthlyLimit > 0 ? (cat.spent / cat.monthlyLimit) * 100 : 0;
-                const isOver = cat.spent > cat.monthlyLimit;
+                const percent = cat.limitAmount > 0 ? (cat.spent / cat.limitAmount) * 100 : 0;
+                const isOver = cat.spent > cat.limitAmount;
                 const hasEditError = editErrorId === cat.categoryId;
 
                 return (
@@ -585,54 +760,69 @@ const Categories: React.FC = () => {
                           <p className="text-sm text-muted truncate animate-fadeInFast shrink-0 whitespace-nowrap">
                             <span className="font-mono font-semibold text-foreground">{fmt(cat.spent)}</span>
                             <span className="text-muted/60"> / </span>
-                            <span className="font-mono text-muted/80">{fmt(cat.monthlyLimit)}</span>
+                            <span className="font-mono text-muted/80">{fmt(cat.limitAmount)}</span>
                           </p>
                         )}
                       </div>
                       
-                      {/* Inline edit row (only visible when editing) */}
+                      {/* Inline edit (limit row + stacked period controls) */}
                       {isEditing && (
-                        <div className="flex items-center gap-1.5 w-full animate-fadeInFast mt-2">
-                          <label htmlFor={`edit-limit-${cat.categoryId}`} className="sr-only">
-                            Edit limit for {cat.categoryName}
-                          </label>
-                          <input
-                            type="number"
-                            value={editLimit}
-                            onChange={(e) => setEditLimit(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleSaveLimit(cat.categoryId);
-                              if (e.key === 'Escape') cancelEditing();
-                            }}
-                            min={0}
-                            max={999999999}
-                            autoFocus
-                            id={`edit-limit-${cat.categoryId}`}
-                            className={`w-28 px-2.5 py-1 bg-background border rounded-lg text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm h-9 transition-colors ${
-                              hasEditError ? 'border-error ring-2 ring-error/25' : 'border-border'
-                            }`}
+                        <div className="flex flex-col gap-3 w-full animate-fadeInFast mt-2">
+                          <div className="flex items-center gap-1.5 w-full">
+                            <label htmlFor={`edit-limit-${cat.categoryId}`} className="sr-only">
+                              Edit limit for {cat.categoryName}
+                            </label>
+                            <input
+                              type="number"
+                              value={editLimit}
+                              onChange={(e) => setEditLimit(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveCategory(cat.categoryId);
+                                if (e.key === 'Escape') cancelEditing();
+                              }}
+                              min={0}
+                              max={999999999}
+                              autoFocus
+                              id={`edit-limit-${cat.categoryId}`}
+                              className={`w-28 px-2.5 py-1 bg-background border rounded-lg text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm h-9 transition-colors ${
+                                hasEditError ? 'border-error ring-2 ring-error/25' : 'border-border'
+                              }`}
+                            />
+                            <button
+                              onClick={() => handleSaveCategory(cat.categoryId)}
+                              disabled={isSaving}
+                              className="w-9 h-9 flex items-center justify-center bg-success text-white rounded-lg hover:bg-success/80 transition-[transform,background-color] duration-150 ease-out-emil cursor-pointer btn-active-tactile disabled:opacity-50 shrink-0"
+                              aria-label="Save category"
+                            >
+                              <Check className="w-4.5 h-4.5" />
+                            </button>
+                            <button
+                              onClick={cancelEditing}
+                              className="w-9 h-9 flex items-center justify-center bg-error text-white rounded-lg hover:bg-error/80 transition-[transform,background-color] duration-150 ease-out-emil cursor-pointer btn-active-tactile shrink-0"
+                              aria-label="Cancel edit"
+                            >
+                              <X className="w-4.5 h-4.5" />
+                            </button>
+                          </div>
+                          <PeriodControls
+                            value={editPeriod}
+                            onChange={setEditPeriod}
+                            idPrefix={`edit-${cat.categoryId}`}
                           />
-                          <button
-                            onClick={() => handleSaveLimit(cat.categoryId)}
-                            disabled={isSaving}
-                            className="w-9 h-9 flex items-center justify-center bg-success text-white rounded-lg hover:bg-success/80 transition-[transform,background-color] duration-150 ease-out-emil cursor-pointer btn-active-tactile disabled:opacity-50 shrink-0"
-                            aria-label="Save limit"
-                          >
-                            <Check className="w-4.5 h-4.5" />
-                          </button>
-                          <button
-                            onClick={cancelEditing}
-                            className="w-9 h-9 flex items-center justify-center bg-error text-white rounded-lg hover:bg-error/80 transition-[transform,background-color] duration-150 ease-out-emil cursor-pointer btn-active-tactile shrink-0"
-                            aria-label="Cancel edit"
-                          >
-                            <X className="w-4.5 h-4.5" />
-                          </button>
                         </div>
                       )}
 
                       {/* Footer Row (remaining status and visible action buttons) */}
-                      <div className="flex justify-between items-center mt-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex justify-between items-center mt-2 gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          {cat.period && (
+                            <span
+                              className="rounded-full font-bold bg-surface-hover text-muted border border-border"
+                              style={{ fontSize: '10px', lineHeight: '1', padding: '4px 8px', display: 'inline-flex', alignItems: 'center', height: '22px' }}
+                            >
+                              {periodName(cat.period)}
+                            </span>
+                          )}
                           <span
                             className={`rounded-full font-bold border transition-[background-color,border-color] duration-200 ease-out-emil ${
                               isOver ? 'bg-error/10 text-error border-error/20' : ''
@@ -673,7 +863,7 @@ const Categories: React.FC = () => {
                           )}
                         </div>
 
-                        <div className="flex items-center gap-0.5">
+                        <div className="flex items-center gap-0.5 shrink-0">
                           {!isEditing ? (
                             <>
                               <button

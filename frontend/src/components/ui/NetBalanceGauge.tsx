@@ -40,14 +40,9 @@ export const NetBalanceGauge: React.FC<NetBalanceGaugeProps> = ({
   const targetAngle = score * 90; // range [-90, 90]
 
   useEffect(() => {
-    if (!loading) {
-      const timer = setTimeout(() => {
-        setDisplayedAngle(targetAngle);
-      }, 50);
-      return () => clearTimeout(timer);
-    } else {
-      setDisplayedAngle(0);
-    }
+    // setState inside the timeout callback (not synchronously in the effect body)
+    const timer = setTimeout(() => setDisplayedAngle(loading ? 0 : targetAngle), loading ? 0 : 50);
+    return () => clearTimeout(timer);
   }, [loading, targetAngle]);
 
   // Trigonometric coordinates for active segment highlight arc

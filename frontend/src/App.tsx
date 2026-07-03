@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import AuthLayout from './components/layout/AuthLayout';
 import ProtectedRoute from './components/layout/ProtectedRoute';
 import DashboardLayout from './components/layout/DashboardLayout';
@@ -13,6 +13,7 @@ import ProfileSettings from './pages/ProfileSettings';
 import Feed from './pages/Feed';
 import Notifications from './pages/Notifications';
 import NotFound from './pages/NotFound';
+import Landing from './pages/Landing';
 import { ThemeInitializer } from './components/ThemeInitializer';
 
 // Lazy load secondary pages to enable code splitting
@@ -20,6 +21,7 @@ const Challenges = lazy(() => import('./pages/Challenges'));
 const Friends = lazy(() => import('./pages/Friends'));
 const PrivacySettings = lazy(() => import('./pages/PrivacySettings'));
 const PublicProfile = lazy(() => import('./pages/PublicProfile'));
+const PatchUpdates = lazy(() => import('./pages/PatchUpdates'));
 
 // Premium loading visual for lazy route transitions
 const PageLoader = () => (
@@ -37,8 +39,8 @@ function App() {
     <BrowserRouter>
       <ThemeInitializer />
       <Routes>
-        {/* Redirect root path to dashboard */}
-        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        {/* Public root path renders Landing Page */}
+        <Route path="/" element={<Landing />} />
 
         {/* Public auth routes */}
         <Route element={<AuthLayout />}>
@@ -89,6 +91,14 @@ function App() {
               }
             />
             <Route path="/notifications" element={<Notifications />} />
+            <Route
+              path="/whats-new"
+              element={
+                <Suspense fallback={<PageLoader />}>
+                  <PatchUpdates />
+                </Suspense>
+              }
+            />
           </Route>
         </Route>
 

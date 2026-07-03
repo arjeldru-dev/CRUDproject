@@ -9,10 +9,101 @@ import api from '../../lib/api';
 import Avatar from '../ui/Avatar';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { formatDistanceToNow } from 'date-fns';
+import ReactionPicker from './ReactionPicker';
+import { ReactionGlyph } from './ReactionGlyph';
+import { REACTION_LABELS } from './reactionMeta';
+import ReactorsModal from './ReactorsModal';
 
 interface CommentThreadProps {
   postId: string;
 }
+
+/** Optimistic single-reaction transform for a comment. */
+function applyCommentReaction(c: Comment, emoji: string): Comment {
+  const reactions = c.reactions.map((r) => ({ ...r }));
+  const dec = (e: string) => {
+    const t = reactions.find((r) => r.emoji === e);
+    if (t) t.count -= 1;
+  };
+  const inc = (e: string) => {
+    const t = reactions.find((r) => r.emoji === e);
+    if (t) t.count += 1;
+    else reactions.push({ emoji: e, count: 1 });
+  };
+
+  let userReaction: string | null = c.userReaction;
+  let reactionCount = c.reactionCount;
+
+  if (c.userReaction === emoji) {
+    dec(emoji);
+    userReaction = null;
+    reactionCount -= 1;
+  } else {
+    if (c.userReaction) {
+      dec(c.userReaction);
+      reactionCount -= 1;
+    }
+    inc(emoji);
+    userReaction = emoji;
+    reactionCount += 1;
+  }
+
+  return { ...c, reactions: reactions.filter((r) => r.count > 0), userReaction, reactionCount };
+}
+
+/** Reaction trigger (picker) + summary shown under a comment or reply. */
+const CommentReactionControls: React.FC<{
+  comment: Comment;
+  onReact: (commentId: string, emoji: string) => void;
+  onOpenReactors: (commentId: string) => void;
+}> = ({ comment, onReact, onOpenReactors }) => {
+  const userReaction = comment.userReaction;
+  const topEmojis = [...comment.reactions].sort((a, b) => b.count - a.count).slice(0, 3).map((r) => r.emoji);
+
+  return (
+    <div className="flex items-center gap-2">
+      <ReactionPicker
+        onReact={(emoji) => onReact(comment.id, emoji)}
+        quickEmoji={userReaction ?? '👍'}
+        triggerAriaLabel={userReaction ? `Your reaction: ${REACTION_LABELS[userReaction]}` : 'React'}
+        triggerClassName={`text-[11px] font-bold transition-all duration-100 ease-out active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-1 select-none flex items-center gap-1 ${
+          userReaction ? 'text-primary' : 'text-muted hover:text-primary'
+        }`}
+      >
+        {userReaction ? (
+          <>
+            <ReactionGlyph emoji={userReaction} className="w-3.5 h-3.5" />
+            {REACTION_LABELS[userReaction]}
+          </>
+        ) : (
+          'Like'
+        )}
+      </ReactionPicker>
+
+      {comment.reactionCount > 0 && (
+        <button
+          type="button"
+          onClick={() => onOpenReactors(comment.id)}
+          className="flex items-center gap-0.5 text-[10px] font-medium text-muted hover:text-primary transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-0.5"
+          aria-label={`See who reacted (${comment.reactionCount})`}
+        >
+          <span className="flex items-center">
+            {topEmojis.map((emoji, i) => (
+              <span
+                key={emoji}
+                className="w-4 h-4 rounded-full bg-background flex items-center justify-center text-primary"
+                style={{ marginLeft: i === 0 ? 0 : -4, zIndex: topEmojis.length - i }}
+              >
+                <ReactionGlyph emoji={emoji} className="w-2.5 h-2.5" />
+              </span>
+            ))}
+          </span>
+          <span className="font-mono">{comment.reactionCount}</span>
+        </button>
+      )}
+    </div>
+  );
+};
 
 const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -20,6 +111,7 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
+  const [reactorsCommentId, setReactorsCommentId] = useState<string | null>(null);
   const [dialogConfig, setDialogConfig] = useState<{
     isOpen: boolean;
     title: string;
@@ -33,7 +125,8 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
 
   const addCommentToStore = useFeedStore((state) => state.addComment);
   const deleteCommentFromStore = useFeedStore((state) => state.deleteComment);
-  const likeCommentStore = useFeedStore((state) => state.likeComment);
+  const reactToCommentStore = useFeedStore((state) => state.reactToComment);
+  const fetchCommentReactors = useFeedStore((state) => state.fetchCommentReactors);
   const user = useAuthStore((state) => state.user);
   const profile = useGamificationStore((state) => state.profile);
 
@@ -73,43 +166,22 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
     setIsSubmitting(false);
   };
 
-  const handleLike = async (commentId: string) => {
-    const rollbackComments = [...comments];
-    setComments((prev) =>
-      prev.map((c) => {
-        if (c.id === commentId) {
-          return {
-            ...c,
-            userLiked: !c.userLiked,
-            likesCount: c.userLiked ? Math.max(0, c.likesCount - 1) : c.likesCount + 1,
-          };
-        }
-        return c;
-      })
-    );
+  const handleReact = async (commentId: string, emoji: string) => {
+    const rollback = comments;
+    setComments((prev) => prev.map((c) => (c.id === commentId ? applyCommentReaction(c, emoji) : c)));
 
-    try {
-      const res = await likeCommentStore(commentId);
-      if (!res) {
-        setComments(rollbackComments);
-      } else {
-        setComments((prev) =>
-          prev.map((c) => {
-            if (c.id === commentId) {
-              return {
-                ...c,
-                userLiked: res.liked,
-                likesCount: res.likesCount,
-              };
-            }
-            return c;
-          })
-        );
-      }
-    } catch (error) {
-      console.error('Error liking comment:', error);
-      setComments(rollbackComments);
+    const res = await reactToCommentStore(commentId, emoji);
+    if (!res) {
+      setComments(rollback);
+      return;
     }
+    setComments((prev) =>
+      prev.map((c) =>
+        c.id === commentId
+          ? { ...c, reactions: res.reactions, userReaction: res.userReaction, reactionCount: res.reactionCount }
+          : c
+      )
+    );
   };
 
   const handleReplyClick = (comment: Comment) => {
@@ -198,19 +270,11 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
                       </p>
                     </div>
                     <div className="flex items-center gap-3 mt-1 ml-1 font-sans">
-                      <button 
-                        onClick={() => handleLike(comment.id)}
-                        className={`text-[11px] font-bold transition-all duration-100 ease-out active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-1 select-none flex items-center gap-1 ${
-                          comment.userLiked ? 'text-primary' : 'text-muted hover:text-primary'
-                        }`}
-                      >
-                        Like
-                        {comment.likesCount > 0 && (
-                          <span className="font-mono text-[10px] font-medium bg-background px-1 rounded-full border border-border/20">
-                            {comment.likesCount}
-                          </span>
-                        )}
-                      </button>
+                      <CommentReactionControls
+                        comment={comment}
+                        onReact={handleReact}
+                        onOpenReactors={setReactorsCommentId}
+                      />
                       <button 
                         onClick={() => handleReplyClick(comment)}
                         className="text-[11px] font-bold text-muted hover:text-primary transition-all duration-100 ease-out active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-1 select-none"
@@ -261,19 +325,11 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
                               </p>
                             </div>
                             <div className="flex items-center gap-3 mt-1 ml-1 font-sans">
-                              <button 
-                                onClick={() => handleLike(reply.id)}
-                                className={`text-[11px] font-bold transition-all duration-100 ease-out active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-1 select-none flex items-center gap-1 ${
-                                  reply.userLiked ? 'text-primary' : 'text-muted hover:text-primary'
-                                }`}
-                              >
-                                Like
-                                {reply.likesCount > 0 && (
-                                  <span className="font-mono text-[10px] font-medium bg-background px-1 rounded-full border border-border/20">
-                                    {reply.likesCount}
-                                  </span>
-                                )}
-                              </button>
+                              <CommentReactionControls
+                                comment={reply}
+                                onReact={handleReact}
+                                onOpenReactors={setReactorsCommentId}
+                              />
                               <button 
                                 onClick={() => handleReplyClick(reply)}
                                 className="text-[11px] font-bold text-muted hover:text-primary transition-all duration-100 ease-out active:scale-95 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/30 rounded px-1 select-none"
@@ -351,6 +407,13 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
           </div>
         </form>
       </div>
+
+      <ReactorsModal
+        isOpen={reactorsCommentId !== null}
+        onClose={() => setReactorsCommentId(null)}
+        fetchReactors={() => fetchCommentReactors(reactorsCommentId as string)}
+      />
+
       {dialogConfig && (
         <ConfirmDialog
           isOpen={dialogConfig.isOpen}

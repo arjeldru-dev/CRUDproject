@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AlertCircle, RefreshCw, Plus, ArrowDownRight, ArrowUpRight } from 'lucide-react';
-import { getCategoryColor } from './SpendingDonutChart';
+import { getCategoryColor } from './categoryColor';
 
 /* ── Shared Types ──────────────────────────────────────────────────── */
 
 interface BudgetStatus {
   categoryId: string;
   categoryName: string;
-  monthlyLimit: number;
+  limitAmount: number;
   spent: number;
   remaining: number;
   projectedSpend?: number;
@@ -70,12 +70,14 @@ const SpendingTabView: React.FC<{
     const absoluteSum = active.reduce((sum, b) => sum + Math.abs(b.spent), 0);
     const signedSum = active.reduce((sum, b) => sum + b.spent, 0);
 
-    let accumulatedPercentage = 0;
-    const list: DonutSlice[] = active.map((b) => {
+    const list: DonutSlice[] = active.map((b, i) => {
       const percentage = absoluteSum > 0 ? Math.abs(b.spent) / absoluteSum : 0;
       const color = getCategoryColor(b.categoryName);
-      const angle = accumulatedPercentage * 360 - 90;
-      accumulatedPercentage += percentage;
+      // Cumulative share of all prior slices → start angle (no outer mutation during render).
+      const priorPercentage = absoluteSum > 0
+        ? active.slice(0, i).reduce((sum, x) => sum + Math.abs(x.spent), 0) / absoluteSum
+        : 0;
+      const angle = priorPercentage * 360 - 90;
 
       return {
         categoryId: b.categoryId,
@@ -95,14 +97,11 @@ const SpendingTabView: React.FC<{
     };
   }, [budgetStatuses]);
 
-  /* ── Entrance animation trigger ─────────────────────────────────── */
+  /* ── Entrance animation trigger (setState in timeout callback, not sync in effect) ── */
   useEffect(() => {
-    if (totalAbsoluteSpent > 0) {
-      const timer = setTimeout(() => setAnimateProgress(1), 50);
-      return () => clearTimeout(timer);
-    } else {
-      setAnimateProgress(0);
-    }
+    const shouldAnimate = totalAbsoluteSpent > 0;
+    const timer = setTimeout(() => setAnimateProgress(shouldAnimate ? 1 : 0), shouldAnimate ? 50 : 0);
+    return () => clearTimeout(timer);
   }, [totalAbsoluteSpent]);
 
   const activeId = hoveredId || selectedId;
@@ -357,12 +356,10 @@ const BalanceTabView: React.FC<{
   const isEmpty = sumBalances === 0;
 
   useEffect(() => {
-    if (!isEmpty) {
-      const timer = setTimeout(() => setBarAnimated(true), 80);
-      return () => clearTimeout(timer);
-    } else {
-      setBarAnimated(false);
-    }
+    // Reset (empty) or trigger (non-empty) the width animation. setState happens
+    // inside the timeout callback to avoid a synchronous set within the effect body.
+    const timer = setTimeout(() => setBarAnimated(!isEmpty), isEmpty ? 0 : 80);
+    return () => clearTimeout(timer);
   }, [isEmpty, totalOwe, totalOwed]);
 
   let badgeText = 'Balanced';
@@ -502,13 +499,16 @@ const FinancialOverviewPanelComponent: React.FC<FinancialOverviewPanelProps> = (
   onRetry,
   onLogTransaction,
 }) => {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
 
-  // Monitor reduced motion preference
+  // Monitor reduced motion preference (initial value read lazily above)
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mediaQuery.matches);
-
     const listener = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
     mediaQuery.addEventListener('change', listener);
     return () => mediaQuery.removeEventListener('change', listener);

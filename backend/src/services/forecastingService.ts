@@ -1,9 +1,10 @@
 export interface ForecastParams {
   spent: number;
-  monthlyLimit: number;
+  limitAmount: number;
   daysElapsed: number;
   daysRemaining: number;
   categoryName: string;
+  periodLabel?: string;
 }
 
 export interface ForecastResult {
@@ -15,7 +16,7 @@ export interface ForecastResult {
 
 export const generateSpendingForecast = ({
   spent,
-  monthlyLimit,
+  limitAmount,
   daysElapsed,
   daysRemaining,
   categoryName,
@@ -33,27 +34,27 @@ export const generateSpendingForecast = ({
     status = 'SURPLUS';
     const surplus = Math.abs(spent);
     alertText = `Extra ${fmt(surplus)} available!`;
-    insightText = `You have ${fmt(surplus)} more than your ${fmt(monthlyLimit)} limit for ${categoryName.toLowerCase()}. Great job building a buffer!`;
+    insightText = `You have ${fmt(surplus)} more than your ${fmt(limitAmount)} limit for ${categoryName.toLowerCase()}. Great job building a buffer!`;
   } else {
     const dailyAverage = spent / daysElapsed;
     projectedSpend = spent + (dailyAverage * daysRemaining);
-    const pct = monthlyLimit > 0 ? Math.round((spent / monthlyLimit) * 100) : 0;
+    const pct = limitAmount > 0 ? Math.round((spent / limitAmount) * 100) : 0;
 
     // We only flag a category AT_RISK if at least 3 days have elapsed and 30% of the budget is used.
-    // This prevents premature/volatile alerts during the first 1-2 days of a new month,
+    // This prevents premature/volatile alerts in the first 1-2 days of a new period,
     // as early large transactions (e.g. paying rent) would skew forecasting projections.
-    if (spent > monthlyLimit && monthlyLimit > 0) {
+    if (spent > limitAmount && limitAmount > 0) {
       status = 'OVER_BUDGET';
-    } else if (projectedSpend >= monthlyLimit * 0.85 && monthlyLimit > 0 && pct >= 30 && daysElapsed >= 3) {
+    } else if (projectedSpend >= limitAmount * 0.85 && limitAmount > 0 && pct >= 30 && daysElapsed >= 3) {
       status = 'AT_RISK';
     } else {
       status = 'ON_TRACK';
     }
 
     if (status === 'OVER_BUDGET') {
-      const overage = spent - monthlyLimit;
+      const overage = spent - limitAmount;
       alertText = `Over limit by ${fmt(overage)}!`;
-      insightText = `You are ${fmt(overage)} over your ${fmt(monthlyLimit)} limit for ${categoryName.toLowerCase()}.`;
+      insightText = `You are ${fmt(overage)} over your ${fmt(limitAmount)} limit for ${categoryName.toLowerCase()}.`;
     } else if (status === 'AT_RISK') {
       alertText = `${pct}% budget used, ${daysRemaining} days left.`;
       const n = categoryName.toLowerCase();
@@ -62,7 +63,7 @@ export const generateSpendingForecast = ({
       } else if (n.includes('transport') || n.includes('commute') || n.includes('gas')) {
         insightText = "Consider carpooling or public transport to save.";
       } else if (n.includes('shopping') || n.includes('clothes') || n.includes('apparel')) {
-        insightText = "Hold off on non-essential purchases this week.";
+        insightText = "Hold off on non-essential purchases for now.";
       } else if (n.includes('entertainment') || n.includes('fun') || n.includes('leisure')) {
         insightText = "Look for free activities or stay in to stay under limit.";
       } else {

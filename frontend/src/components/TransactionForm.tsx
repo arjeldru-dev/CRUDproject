@@ -31,7 +31,7 @@ interface Friend {
 interface Category {
   id: string;
   name: string;
-  monthlyLimit: number;
+  limitAmount: number;
 }
 
 interface Balance {
@@ -671,7 +671,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                           value={c.id}
                           className="bg-surface text-foreground"
                         >
-                          {c.name} (Limit: {fmt(c.monthlyLimit)})
+                          {c.name} (Limit: {fmt(c.limitAmount)})
                         </option>
                       ))}
                     </select>

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Edit3, User, Activity, Bell, Shield, Trophy } from 'lucide-react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { LogOut, LayoutDashboard, Users, Wallet, Receipt, Sun, Moon, Edit3, Activity, Bell, Shield, Trophy, Sparkles, X } from 'lucide-react';
+import { hasUnseenUpdate, markUpdatesSeen, latestUpdateTitle } from '../../lib/updates';
 import { useAuthStore } from '../../store/authStore';
 import { useThemeStore } from '../../store/themeStore';
 import { useUiStore } from '../../store/uiStore';
@@ -32,6 +33,19 @@ const DashboardLayout: React.FC = () => {
   const { unreadCount, startPolling, stopPolling, subscribeToPush } = useNotificationStore();
   const { profile, fetchProfile } = useGamificationStore();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // ── New-update indicator (dot + toast), derived during render ──────
+  // The What's New page marks updates seen on mount; navigating there (or
+  // dismissing) makes hasUnseenUpdate() false on the next render.
+  const [, forceUpdateRecheck] = useState(0);
+  const updateUnseen = hasUnseenUpdate(user?.id);
+  const hasUpdate = location.pathname !== '/whats-new' && updateUnseen;
+
+  const dismissUpdateToast = () => {
+    markUpdatesSeen(user?.id);
+    forceUpdateRecheck((n) => n + 1); // re-render → indicators recompute to false
+  };
 
   // Fetch gamification profile to load active avatar frame on mount
   useEffect(() => {
@@ -165,7 +179,7 @@ const DashboardLayout: React.FC = () => {
                   aria-haspopup="true"
                 >
                   <Bell className="w-4.5 h-4.5" aria-hidden="true" />
-                  {unreadCount > 0 && (
+                  {(unreadCount > 0 || updateUnseen) && (
                     <span className="absolute top-2.5 right-2.5 w-2.5 h-2.5 bg-error rounded-full ring-2 ring-nav-bg" />
                   )}
                 </button>
@@ -201,15 +215,30 @@ const DashboardLayout: React.FC = () => {
                 {/* Dropdown Menu */}
                 {showDropdown && (
                   <div role="menu" aria-label="Profile options" className="absolute right-0 top-full mt-2 w-56 bg-surface border border-border rounded-lg shadow-lg overflow-hidden animate-scaleIn z-50">
-                    {/* User Info */}
-                    <div className="px-4 py-3 border-b border-border">
-                      <p className="text-sm font-semibold text-foreground truncate">
-                        {user?.displayName || user?.email}
-                      </p>
-                      {user?.username && (
+                    {/* User Info — clicking it opens the user's profile (replaces the separate "View Profile" item) */}
+                    {user?.username ? (
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setShowDropdown(false);
+                          navigate(`/profile/${user.username}`);
+                        }}
+                        className="block w-full text-left px-4 py-3 border-b border-border hover:bg-surface-hover transition-colors cursor-pointer"
+                        id="dropdown-view-profile"
+                        aria-label="View your profile"
+                      >
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {user?.displayName || user?.email}
+                        </p>
                         <p className="text-xs text-muted truncate font-mono">@{user.username}</p>
-                      )}
-                    </div>
+                      </button>
+                    ) : (
+                      <div className="px-4 py-3 border-b border-border">
+                        <p className="text-sm font-semibold text-foreground truncate">
+                          {user?.displayName || user?.email}
+                        </p>
+                      </div>
+                    )}
 
                     {/* Menu Items */}
                     <div className="p-1.5">
@@ -239,20 +268,23 @@ const DashboardLayout: React.FC = () => {
                         Privacy Settings
                       </button>
 
-                      {user?.username && (
-                        <button
-                          role="menuitem"
-                          onClick={() => {
-                            setShowDropdown(false);
-                            navigate(`/profile/${user.username}`);
-                          }}
-                          className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground font-medium rounded-md hover:bg-surface-hover transition-colors cursor-pointer"
-                          id="dropdown-view-profile"
-                        >
-                          <User className="w-4 h-4 text-muted" aria-hidden="true" />
-                          View Profile
-                        </button>
-                      )}
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setShowDropdown(false);
+                          navigate('/whats-new');
+                        }}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 text-sm text-foreground font-medium rounded-md hover:bg-surface-hover transition-colors cursor-pointer"
+                        id="dropdown-whats-new"
+                      >
+                        <Sparkles className="w-4 h-4 text-muted" aria-hidden="true" />
+                        What's New
+                        {hasUpdate && (
+                          <span className="ml-auto text-[9px] font-bold uppercase tracking-wide text-primary bg-primary/10 rounded-full px-1.5 py-0.5">
+                            New
+                          </span>
+                        )}
+                      </button>
                     </div>
 
                     {/* Logout */}
@@ -304,6 +336,40 @@ const DashboardLayout: React.FC = () => {
         {/* Mobile bottom nav spacer to prevent content overlap/clipping due to flexbox padding scroll bugs */}
         <div className="h-[calc(env(safe-area-inset-bottom)+5rem)] sm:hidden shrink-0 pointer-events-none" />
       </main>
+
+      {/* New-update notification toast */}
+      {hasUpdate && (
+        <div
+          className="fixed right-4 bottom-20 sm:bottom-4 z-[60] w-[calc(100%-2rem)] max-w-xs animate-slideUpIn"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="bg-surface rounded-2xl shadow-lg p-4 flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+              <Sparkles className="w-4.5 h-4.5" aria-hidden="true" />
+            </div>
+            <div className="flex-grow min-w-0">
+              <p className="text-sm font-display font-semibold text-foreground">New update available</p>
+              <p className="text-xs text-muted mt-0.5 leading-relaxed">
+                {latestUpdateTitle ? `${latestUpdateTitle} — see what's new.` : "We shipped some improvements — see what's new."}
+              </p>
+              <button
+                onClick={() => navigate('/whats-new')}
+                className="mt-2 text-xs font-bold text-primary hover:underline cursor-pointer"
+              >
+                See what's new →
+              </button>
+            </div>
+            <button
+              onClick={dismissUpdateToast}
+              aria-label="Dismiss update notification"
+              className="text-muted hover:text-foreground shrink-0 p-0.5 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Global Transaction Form */}
       <TransactionForm

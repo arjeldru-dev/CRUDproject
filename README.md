@@ -278,7 +278,7 @@ header (`Authorization: Bearer <token>`).
 | `POST` | `/api/transactions/settle`              | Records a settlement transaction between friends.         | Protected |
 | `POST` | `/api/transactions/topup`               | Records a personal budget top-up.                         | Protected |
 | `GET`  | `/api/transactions/balances`            | Retrieves current balance summaries.                      | Protected |
-| `GET`  | `/api/transactions/budget`              | Returns monthly progress metrics for spending categories. | Protected |
+| `GET`  | `/api/transactions/budget`              | Returns per-period budget progress (daily/weekly/monthly/custom) per category. | Protected |
 | `GET`  | `/api/transactions/pending`             | Lists split requests awaiting your response.              | Protected |
 | `POST` | `/api/transactions/pending/:id/respond` | Approves or rejects a pending split transaction.          | Protected |
 

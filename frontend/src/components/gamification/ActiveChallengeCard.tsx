@@ -1,10 +1,10 @@
 import React from 'react';
-import { Calendar, Trophy, Coffee, Car, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
+import { Calendar, Trophy, Coffee, Car, AlertTriangle, CheckCircle, Clock, type LucideIcon } from 'lucide-react';
 import { useGamificationStore } from '../../store/gamificationStore';
 import type { ChallengeWithDetails } from '../../store/gamificationStore';
 import Avatar from '../ui/Avatar';
 
-const typeIcons: Record<string, React.ComponentType<any>> = {
+const typeIcons: Record<string, LucideIcon> = {
   NO_OVERSPEND_WEEK: Trophy,
   NO_OVERSPEND_MONTH: Trophy,
   COFFEE_FREE_WEEK: Coffee,
@@ -78,7 +78,7 @@ const ActiveChallengeCardComponent: React.FC = () => {
   const isEndingToday = daysRemaining === 0 && !isFailed;
   
   // Layout customization based on status
-  let cardClass = '';
+  const cardClass = '';
   let barColor = 'bg-primary';
   let statusText = `Day ${currentDay} of ${totalDays} - Stay under budget!`;
   let badgeEl = null;

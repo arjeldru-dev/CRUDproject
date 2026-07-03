@@ -2,6 +2,68 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { createNotification } from '../services/notificationService';
 
+/** Standard reaction emoji set shared by posts and comments. */
+const REACTION_EMOJIS = ['👍', '❤️', '🔥', '😮', '🏆', '🙏'];
+
+/** Upper bound on how many reactor rows a single reactions query returns. */
+const REACTORS_QUERY_LIMIT = 200;
+
+type PostAccess =
+  | { ok: true; postAuthorId: string }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Centralized access control for a feed post. A caller may interact with a post
+ * (read reactions, react, comment) only when:
+ *   - the post exists,
+ *   - neither party has blocked the other, and
+ *   - the caller is the author or an accepted friend of the author.
+ *
+ * Extracting this keeps the reaction/comment endpoints consistent so none of
+ * them can accidentally skip a check.
+ */
+export const checkPostAccess = async (userId: string, postId: string): Promise<PostAccess> => {
+  const post = await prisma.feedPost.findUnique({
+    where: { id: postId },
+    select: { userId: true },
+  });
+
+  if (!post) {
+    return { ok: false, status: 404, error: 'Post not found' };
+  }
+
+  // Blocked check: if the caller blocks the post author or vice versa.
+  const isBlocked = await prisma.blockedUser.findFirst({
+    where: {
+      OR: [
+        { blockerId: userId, blockedId: post.userId },
+        { blockerId: post.userId, blockedId: userId },
+      ],
+    },
+  });
+
+  if (isBlocked) {
+    return { ok: false, status: 403, error: 'Forbidden' };
+  }
+
+  if (post.userId !== userId) {
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { userAId: userId, userBId: post.userId },
+          { userAId: post.userId, userBId: userId },
+        ],
+      },
+    });
+
+    if (!friendship) {
+      return { ok: false, status: 403, error: 'Forbidden: You are not friends with the post author' };
+    }
+  }
+
+  return { ok: true, postAuthorId: post.userId };
+};
+
 export const getFeed = async (req: Request, res: Response) => {
   try {
     const userId: string = req.user.id;
@@ -194,27 +256,9 @@ export const getComments = async (req: Request, res: Response) => {
     if (limit < 1) limit = 20;
     if (limit > 50) limit = 50;
 
-    const post = await prisma.feedPost.findUnique({
-      where: { id: postId },
-      select: { userId: true },
-    });
-
-    if (!post) {
-      return res.status(404).json({ error: 'Post not found' });
-    }
-
-    // Blocked check: if the caller blocks the post author or vice versa
-    const isBlocked = await prisma.blockedUser.findFirst({
-      where: {
-        OR: [
-          { blockerId: userId, blockedId: post.userId },
-          { blockerId: post.userId, blockedId: userId },
-        ],
-      },
-    });
-
-    if (isBlocked) {
-      return res.status(403).json({ error: 'Forbidden' });
+    const access = await checkPostAccess(userId, postId);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: access.error });
     }
 
     const comments = await prisma.comment.findMany({
@@ -243,6 +287,7 @@ export const getComments = async (req: Request, res: Response) => {
         likes: {
           select: {
             userId: true,
+            emoji: true,
           },
         },
       },
@@ -254,23 +299,34 @@ export const getComments = async (req: Request, res: Response) => {
       nextCursor = nextItem?.id || null;
     }
 
-    const formattedComments = comments.map(comment => ({
-      id: comment.id,
-      postId: comment.postId,
-      userId: comment.userId,
-      parentId: comment.parentId,
-      text: comment.text,
-      createdAt: comment.createdAt,
-      isOwn: comment.userId === userId,
-      likesCount: comment.likes.length,
-      userLiked: comment.likes.some(like => like.userId === userId),
-      user: {
-        username: comment.user.username,
-        displayName: comment.user.displayName,
-        avatarUrl: comment.user.avatarUrl,
-        activeFrame: comment.user.gamification?.activeFrame ?? null,
-      },
-    }));
+    const formattedComments = comments.map(comment => {
+      const counts: Record<string, number> = {};
+      let userReaction: string | null = null;
+      for (const like of comment.likes) {
+        counts[like.emoji] = (counts[like.emoji] || 0) + 1;
+        if (like.userId === userId) userReaction = like.emoji;
+      }
+      const reactions = Object.entries(counts).map(([emoji, count]) => ({ emoji, count }));
+
+      return {
+        id: comment.id,
+        postId: comment.postId,
+        userId: comment.userId,
+        parentId: comment.parentId,
+        text: comment.text,
+        createdAt: comment.createdAt,
+        isOwn: comment.userId === userId,
+        reactions,
+        userReaction,
+        reactionCount: comment.likes.length,
+        user: {
+          username: comment.user.username,
+          displayName: comment.user.displayName,
+          avatarUrl: comment.user.avatarUrl,
+          activeFrame: comment.user.gamification?.activeFrame ?? null,
+        },
+      };
+    });
 
     return res.status(200).json({ comments: formattedComments, nextCursor });
   } catch (error) {
@@ -285,88 +341,206 @@ export const reactToPost = async (req: Request, res: Response) => {
     const { emoji } = req.body;
     const userId: string = req.user.id;
 
-    if (!['👍', '❤️', '🔥', '😮', '🏆', '🙏'].includes(emoji)) {
+    if (!REACTION_EMOJIS.includes(emoji)) {
       return res.status(400).json({ error: 'Invalid emoji reaction' });
     }
 
-    const post = await prisma.feedPost.findUnique({
-      where: { id: postId },
-      select: { userId: true },
-    });
-
-    if (!post) {
-      return res.status(404).json({ error: 'Post not found' });
+    const access = await checkPostAccess(userId, postId);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: access.error });
     }
+    const postAuthorId = access.postAuthorId;
 
-    // Blocked check: if the caller blocks the post author or vice versa
-    const isBlocked = await prisma.blockedUser.findFirst({
-      where: {
-        OR: [
-          { blockerId: userId, blockedId: post.userId },
-          { blockerId: post.userId, blockedId: userId },
-        ],
-      },
-    });
+    // One reaction per user: find this user's existing reaction on the post,
+    // whatever emoji it is.
+    const existing = await prisma.reaction.findFirst({ where: { postId, userId } });
 
-    if (isBlocked) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    if (post.userId !== userId) {
-      const friendship = await prisma.friendship.findFirst({
-        where: {
-          OR: [
-            { userAId: userId, userBId: post.userId },
-            { userAId: post.userId, userBId: userId },
-          ],
-        },
-      });
-
-      if (!friendship) {
-        return res.status(403).json({ error: 'Forbidden: You are not friends with the post author' });
+    if (existing) {
+      if (existing.emoji === emoji) {
+        // Same emoji tapped again → remove it.
+        await prisma.reaction.delete({ where: { id: existing.id } });
+        return res.status(200).json({ success: true, action: 'removed', emoji: null });
       }
+      // Different emoji → switch the reaction.
+      const updated = await prisma.reaction.update({
+        where: { id: existing.id },
+        data: { emoji },
+      });
+      return res.status(200).json({ success: true, action: 'switched', emoji: updated.emoji });
     }
 
-    const existingReaction = await prisma.reaction.findUnique({
-      where: {
-        postId_userId_emoji: {
-          postId,
-          userId,
-          emoji,
-        },
-      },
+    const reaction = await prisma.reaction.create({
+      data: { postId, userId, emoji },
     });
 
-    if (existingReaction) {
-      // Toggle off
-      await prisma.reaction.delete({
-        where: { id: existingReaction.id },
+    // Notify post author
+    if (postAuthorId !== userId) {
+      await createNotification({
+        recipientId: postAuthorId,
+        actorId: userId,
+        type: 'FEED_REACTION',
+        data: { postId, emoji },
       });
-      return res.status(200).json({ success: true, action: 'removed' });
-    } else {
-      // Toggle on
-      const reaction = await prisma.reaction.create({
-        data: {
-          postId,
-          userId,
-          emoji,
-        },
-      });
-
-      // Notify post author
-      if (post.userId !== userId) {
-        await createNotification({
-          recipientId: post.userId,
-          actorId: userId,
-          type: 'FEED_REACTION',
-          data: { postId, emoji },
-        });
-      }
-
-      return res.status(200).json({ success: true, action: 'added', reaction });
     }
+
+    return res.status(200).json({ success: true, action: 'added', emoji: reaction.emoji });
   } catch (error) {
     console.error('React to post error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/** Shape used when returning a reactor's public profile. */
+const reactorUserSelect = {
+  username: true,
+  displayName: true,
+  avatarUrl: true,
+  gamification: { select: { activeFrame: { select: { cssClass: true } } } },
+} as const;
+
+type ReactorUserRow = {
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  gamification: { activeFrame: { cssClass: string } | null } | null;
+};
+
+const formatReactorUser = (user: ReactorUserRow) => ({
+  username: user.username,
+  displayName: user.displayName,
+  avatarUrl: user.avatarUrl,
+  activeFrame: user.gamification?.activeFrame ?? null,
+});
+
+/**
+ * GET /api/feed/:postId/reactions
+ * Returns the list of users who reacted to a post, with the emoji they used.
+ */
+export const getPostReactors = async (req: Request, res: Response) => {
+  try {
+    const { postId } = req.params;
+    const userId: string = req.user.id;
+
+    const access = await checkPostAccess(userId, postId);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: access.error });
+    }
+
+    const reactions = await prisma.reaction.findMany({
+      where: { postId },
+      orderBy: { createdAt: 'asc' },
+      take: REACTORS_QUERY_LIMIT,
+      include: { user: { select: reactorUserSelect } },
+    });
+
+    const reactors = reactions.map((r) => ({ emoji: r.emoji, user: formatReactorUser(r.user) }));
+    return res.status(200).json({ reactors });
+  } catch (error) {
+    console.error('Get post reactors error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * POST /api/feed/comment/:commentId/react
+ * Adds / switches / removes the user's single emoji reaction on a comment.
+ */
+export const reactToComment = async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const { emoji } = req.body;
+    const userId: string = req.user.id;
+
+    if (!REACTION_EMOJIS.includes(emoji)) {
+      return res.status(400).json({ error: 'Invalid emoji reaction' });
+    }
+
+    const comment = await prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { userId: true, postId: true },
+    });
+    if (!comment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    // Same access rules as the parent post (blocked / friendship checks).
+    const access = await checkPostAccess(userId, comment.postId);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: access.error });
+    }
+
+    const existing = await prisma.commentLike.findUnique({
+      where: { commentId_userId: { commentId, userId } },
+    });
+
+    if (existing) {
+      if (existing.emoji === emoji) {
+        await prisma.commentLike.delete({ where: { id: existing.id } });
+      } else {
+        await prisma.commentLike.update({ where: { id: existing.id }, data: { emoji } });
+      }
+    } else {
+      await prisma.commentLike.create({ data: { commentId, userId, emoji } });
+      if (comment.userId !== userId) {
+        await createNotification({
+          recipientId: comment.userId,
+          actorId: userId,
+          type: 'FEED_REACTION',
+          data: { postId: comment.postId, commentId, emoji },
+        });
+      }
+    }
+
+    const all = await prisma.commentLike.findMany({ where: { commentId }, select: { emoji: true, userId: true } });
+    const counts: Record<string, number> = {};
+    let userReaction: string | null = null;
+    for (const like of all) {
+      counts[like.emoji] = (counts[like.emoji] || 0) + 1;
+      if (like.userId === userId) userReaction = like.emoji;
+    }
+    const reactions = Object.entries(counts).map(([e, count]) => ({ emoji: e, count }));
+
+    return res.status(200).json({ userReaction, reactions, reactionCount: all.length });
+  } catch (error) {
+    console.error('React to comment error:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * GET /api/feed/comment/:commentId/reactions
+ * Returns the list of users who reacted to a comment, with the emoji they used.
+ */
+export const getCommentReactors = async (req: Request, res: Response) => {
+  try {
+    const { commentId } = req.params;
+    const userId: string = req.user.id;
+
+    const comment = await prisma.comment.findUnique({
+      where: { id: commentId },
+      select: { postId: true },
+    });
+    if (!comment) {
+      return res.status(404).json({ error: 'Comment not found' });
+    }
+
+    // Same access rules as the parent post (blocked / friendship checks).
+    const access = await checkPostAccess(userId, comment.postId);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: access.error });
+    }
+
+    const reactions = await prisma.commentLike.findMany({
+      where: { commentId },
+      orderBy: { createdAt: 'asc' },
+      take: REACTORS_QUERY_LIMIT,
+      include: { user: { select: reactorUserSelect } },
+    });
+
+    const reactors = reactions.map((r) => ({ emoji: r.emoji, user: formatReactorUser(r.user) }));
+    return res.status(200).json({ reactors });
+  } catch (error) {
+    console.error('Get comment reactors error:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -385,43 +559,11 @@ export const addComment = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Comment text exceeds 500 characters' });
     }
 
-    const post = await prisma.feedPost.findUnique({
-      where: { id: postId },
-      select: { userId: true },
-    });
-
-    if (!post) {
-      return res.status(404).json({ error: 'Post not found' });
+    const access = await checkPostAccess(userId, postId);
+    if (!access.ok) {
+      return res.status(access.status).json({ error: access.error });
     }
-
-    // Blocked check: if the caller blocks the post author or vice versa
-    const isBlocked = await prisma.blockedUser.findFirst({
-      where: {
-        OR: [
-          { blockerId: userId, blockedId: post.userId },
-          { blockerId: post.userId, blockedId: userId },
-        ],
-      },
-    });
-
-    if (isBlocked) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
-
-    if (post.userId !== userId) {
-      const friendship = await prisma.friendship.findFirst({
-        where: {
-          OR: [
-            { userAId: userId, userBId: post.userId },
-            { userAId: post.userId, userBId: userId },
-          ],
-        },
-      });
-
-      if (!friendship) {
-        return res.status(403).json({ error: 'Forbidden: You are not friends with the post author' });
-      }
-    }
+    const postAuthorId = access.postAuthorId;
 
     // Validate parentComment if parentId is provided
     if (parentId) {
@@ -465,9 +607,9 @@ export const addComment = async (req: Request, res: Response) => {
     });
 
     // Notify post author
-    if (post.userId !== userId) {
+    if (postAuthorId !== userId) {
       await createNotification({
-        recipientId: post.userId,
+        recipientId: postAuthorId,
         actorId: userId,
         type: 'FEED_COMMENT',
         data: { postId, commentId: comment.id },
@@ -499,8 +641,9 @@ export const addComment = async (req: Request, res: Response) => {
         text: comment.text,
         createdAt: comment.createdAt,
         isOwn: true,
-        likesCount: 0,
-        userLiked: false,
+        reactions: [],
+        userReaction: null,
+        reactionCount: 0,
         user: {
           username: comment.user.username,
           displayName: comment.user.displayName,
@@ -653,65 +796,4 @@ export const updatePost = async (req: Request, res: Response) => {
   }
 };
 
-export const likeComment = async (req: Request, res: Response) => {
-  try {
-    const { commentId } = req.params;
-    const userId: string = req.user.id;
 
-    const comment = await prisma.comment.findUnique({
-      where: { id: commentId },
-    });
-
-    if (!comment) {
-      return res.status(404).json({ error: 'Comment not found' });
-    }
-
-    const existingLike = await prisma.commentLike.findUnique({
-      where: {
-        commentId_userId: {
-          commentId,
-          userId,
-        },
-      },
-    });
-
-    let liked = false;
-    if (existingLike) {
-      await prisma.commentLike.delete({
-        where: {
-          commentId_userId: {
-            commentId,
-            userId,
-          },
-        },
-      });
-    } else {
-      await prisma.commentLike.create({
-        data: {
-          commentId,
-          userId,
-        },
-      });
-      liked = true;
-
-      // Send notification to comment author if not liking own comment
-      if (comment.userId !== userId) {
-        await createNotification({
-          recipientId: comment.userId,
-          actorId: userId,
-          type: 'FEED_REACTION',
-          data: { postId: comment.postId, commentId, emoji: '❤️' },
-        });
-      }
-    }
-
-    const likesCount = await prisma.commentLike.count({
-      where: { commentId },
-    });
-
-    return res.status(200).json({ liked, likesCount });
-  } catch (error) {
-    console.error('Like comment error:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-};

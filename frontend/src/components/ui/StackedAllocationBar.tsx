@@ -1,10 +1,10 @@
 import React from 'react';
-import { getCategoryColor } from './SpendingDonutChart';
+import { getCategoryColor } from './categoryColor';
 
 interface BudgetStatus {
   categoryId: string;
   categoryName: string;
-  monthlyLimit: number;
+  limitAmount: number;
   spent: number;
   remaining: number;
   projectedSpend?: number;

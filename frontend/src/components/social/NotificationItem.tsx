@@ -263,7 +263,7 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onAct
         {useAvatar && !imageError ? (
           <div className={`w-10 h-10 md:w-11 md:h-11 rounded-full p-[1px] md:p-0.5 ${styles.ring} overflow-hidden bg-background`}>
             <img
-              src={notification.actor?.avatarUrl!}
+              src={notification.actor?.avatarUrl ?? undefined}
               alt={actorName}
               className="w-full h-full object-cover rounded-full"
               onError={() => setImageError(true)}

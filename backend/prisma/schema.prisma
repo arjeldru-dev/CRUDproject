@@ -114,11 +114,23 @@ model FriendProfile {
   @@map("friend_profiles")
 }
 
+enum BudgetPeriod {
+  DAILY
+  WEEKLY
+  MONTHLY
+  CUSTOM
+}
+
 model Category {
-  id           String  @id @default(uuid()) @db.Uuid
-  userId       String  @map("user_id") @db.Uuid
-  name         String
-  monthlyLimit Decimal @map("monthly_limit") @db.Decimal(10, 2)
+  id               String       @id @default(uuid()) @db.Uuid
+  userId           String       @map("user_id") @db.Uuid
+  name             String
+  limitAmount      Decimal      @map("limit_amount") @db.Decimal(10, 2)
+  period           BudgetPeriod @default(MONTHLY)
+  monthlyStartDay  Int?         @map("monthly_start_day")   // 1–31 (clamped), or -1 = "last day of month"; NULL/1 = calendar month
+  weeklyStartDay   Int?         @map("weekly_start_day")    // 0=Sunday … 6=Saturday; required when period=WEEKLY
+  customPeriodDays Int?         @map("custom_period_days")  // cycle length in days; required when period=CUSTOM
+  anchorDate       DateTime?    @map("anchor_date") @db.Date // reference start date for CUSTOM cycles
 
   // Relationships
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -237,6 +249,7 @@ model CommentLike {
   id        String   @id @default(uuid()) @db.Uuid
   commentId String   @map("comment_id") @db.Uuid
   userId    String   @map("user_id") @db.Uuid
+  emoji     String   @default("👍")
   createdAt DateTime @default(now()) @map("created_at")
 
   comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)

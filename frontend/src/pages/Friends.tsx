@@ -214,7 +214,7 @@ const Friends: React.FC = () => {
         setSearchResults(res.data.results);
         setSearchError('');
       } catch (err: unknown) {
-        const error = err as any;
+        const error = err as { name?: string; response?: { data?: { error?: string } } };
         if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
           setSearchResults([]);
           setSearchError(error.response?.data?.error || 'Search failed due to a network or server error.');
@@ -264,7 +264,7 @@ const Friends: React.FC = () => {
         });
         setGhostLinkResults(res.data.results);
       } catch (err: unknown) {
-        const error = err as any;
+        const error = err as { name?: string };
         if (error.name !== 'CanceledError' && error.name !== 'AbortError') {
           setGhostLinkResults([]);
         }
@@ -387,7 +387,7 @@ const Friends: React.FC = () => {
       setInviteEmail('');
       setTimeout(() => setInviteStatus(''), 3000);
     } catch (err: unknown) {
-      const error = err as any;
+      const error = err as { response?: { data?: { error?: string } } };
       setInviteStatus(error.response?.data?.error || 'Failed to send invite.');
     }
   };

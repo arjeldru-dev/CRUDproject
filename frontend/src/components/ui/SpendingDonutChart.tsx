@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { AlertCircle, RefreshCw, Plus } from 'lucide-react';
+import { getCategoryColor } from './categoryColor';
 
 interface BudgetStatus {
   categoryId: string;
   categoryName: string;
-  monthlyLimit: number;
+  limitAmount: number;
   spent: number;
   remaining: number;
   projectedSpend?: number;
@@ -21,51 +22,6 @@ interface SpendingDonutChartProps {
   onLogTransaction?: () => void;
 }
 
-/**
- * Resolves category colors dynamically using design tokens and high-contrast
- * light/dark mode compliant colors to prevent category visualization collisions.
- */
-export const getCategoryColor = (name: string): string => {
-  const norm = name.toLowerCase().trim();
-
-  // Neutral, high-contrast category mappings (decoupled from semantic status colors like error/success)
-  if (norm.includes('food') || norm.includes('dining') || norm.includes('groceries')) {
-    return '#f43f5e'; // Pleasant Rose
-  }
-  if (norm.includes('transport') || norm.includes('travel') || norm.includes('commute')) {
-    return 'var(--color-primary)'; // Sky Blue
-  }
-  if (norm.includes('rent') || norm.includes('housing')) {
-    return 'var(--color-secondary)'; // Accent Indigo
-  }
-  if (norm.includes('utilities') || norm.includes('bills')) {
-    return '#0d9488'; // Deep Teal
-  }
-  if (norm.includes('entertainment') || norm.includes('leisure') || norm.includes('recreation')) {
-    return '#8b5cf6'; // Violet/Purple
-  }
-
-  // Non-colliding fallbacks that are clean and visible in both light & dark themes
-  if (norm.includes('shopping') || norm.includes('personal') || norm.includes('clothing')) {
-    return '#ec4899'; // Pink
-  }
-  if (norm.includes('health') || norm.includes('fitness') || norm.includes('medical')) {
-    return '#10b981'; // Emerald/Green
-  }
-  if (norm.includes('education') || norm.includes('books')) {
-    return '#06b6d4'; // Cyan
-  }
-
-  // Deterministic HSL generator with calibrated saturation/lightness (prevents colors blending together)
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const hueIndex = Math.abs(hash) % 12;
-  const hue = hueIndex * 30; // 0, 30, 60, ..., 330 degrees
-  return `hsl(${hue}, 60%, 50%)`;
-};
-
 const SpendingDonutChartComponent: React.FC<SpendingDonutChartProps> = ({
   budgetStatuses,
   loading = false,
@@ -76,7 +32,12 @@ const SpendingDonutChartComponent: React.FC<SpendingDonutChartProps> = ({
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [animateProgress, setAnimateProgress] = useState(0);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState<boolean>(
+    () =>
+      typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
 
   // Crossfade / scale text states to avoid jarring jumps when toggling active slice details
   const [transitioning, setTransitioning] = useState(false);
@@ -94,11 +55,9 @@ const SpendingDonutChartComponent: React.FC<SpendingDonutChartProps> = ({
       maximumFractionDigits: 2,
     }).format(n);
 
-  // Monitor system media preference for reduced motion animations (A11y)
+  // Monitor system media preference for reduced motion animations (A11y; initial value read lazily above)
   useEffect(() => {
     const mediaQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(mediaQuery.matches);
-
     const listener = (e: MediaQueryListEvent) => setPrefersReducedMotion(e.matches);
     mediaQuery.addEventListener('change', listener);
     return () => mediaQuery.removeEventListener('change', listener);
@@ -110,12 +69,14 @@ const SpendingDonutChartComponent: React.FC<SpendingDonutChartProps> = ({
     const absoluteSum = active.reduce((sum, b) => sum + Math.abs(b.spent), 0);
     const signedSum = active.reduce((sum, b) => sum + b.spent, 0);
 
-    let accumulatedPercentage = 0;
-    const list = active.map((b) => {
+    const list = active.map((b, i) => {
       const percentage = absoluteSum > 0 ? Math.abs(b.spent) / absoluteSum : 0;
       const color = getCategoryColor(b.categoryName);
-      const angle = accumulatedPercentage * 360 - 90;
-      accumulatedPercentage += percentage;
+      // Cumulative share of all prior slices → start angle (no outer mutation during render).
+      const priorPercentage = absoluteSum > 0
+        ? active.slice(0, i).reduce((sum, x) => sum + Math.abs(x.spent), 0) / absoluteSum
+        : 0;
+      const angle = priorPercentage * 360 - 90;
 
       return {
         categoryId: b.categoryId,
@@ -135,16 +96,11 @@ const SpendingDonutChartComponent: React.FC<SpendingDonutChartProps> = ({
     };
   }, [budgetStatuses]);
 
-  // Trigger entrance transition on next paint cycle
+  // Trigger entrance transition on next paint cycle (setState in timeout callback, not sync in effect)
   useEffect(() => {
-    if (!loading && !error && totalAbsoluteSpent > 0) {
-      const timer = setTimeout(() => {
-        setAnimateProgress(1);
-      }, 50);
-      return () => clearTimeout(timer);
-    } else {
-      setAnimateProgress(0);
-    }
+    const shouldAnimate = !loading && !error && totalAbsoluteSpent > 0;
+    const timer = setTimeout(() => setAnimateProgress(shouldAnimate ? 1 : 0), shouldAnimate ? 50 : 0);
+    return () => clearTimeout(timer);
   }, [loading, error, totalAbsoluteSpent]);
 
   // Handle active slice state priority
@@ -165,18 +121,23 @@ const SpendingDonutChartComponent: React.FC<SpendingDonutChartProps> = ({
       };
 
   // Perform a smooth blur/opacity crossfade when the text details update
+  const { label: displayLabel, value: displayValue, subtext: displaySubtext } = displayText;
   useEffect(() => {
+    const next = { label: displayLabel, value: displayValue, subtext: displaySubtext };
     if (prefersReducedMotion) {
-      setTempDisplayText(displayText);
-      return;
+      const t = setTimeout(() => setTempDisplayText(next), 0);
+      return () => clearTimeout(t);
     }
-    setTransitioning(true);
-    const timer = setTimeout(() => {
-      setTempDisplayText(displayText);
+    const startBlur = setTimeout(() => setTransitioning(true), 0);
+    const swap = setTimeout(() => {
+      setTempDisplayText(next);
       setTransitioning(false);
     }, 100);
-    return () => clearTimeout(timer);
-  }, [displayText.label, displayText.value, displayText.subtext, prefersReducedMotion]);
+    return () => {
+      clearTimeout(startBlur);
+      clearTimeout(swap);
+    };
+  }, [displayLabel, displayValue, displaySubtext, prefersReducedMotion]);
 
   // Toggle selection states cleanly (solves mobile sticky mouseleave events)
   const handleSliceClick = (categoryId: string) => {

@@ -92,7 +92,7 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
       const activeFriends = (friendsRes.data.friends || []).filter((f: Friend) => !f.isGhost);
       setFriends(activeFriends);
     } catch (err: unknown) {
-      const error = err as any;
+      const error = err as { name?: string; message?: string };
       if (error.name !== 'CanceledError' && error.name !== 'AbortError' && error.message !== 'canceled') {
         setFormError('Failed to load friends or categories.');
       }

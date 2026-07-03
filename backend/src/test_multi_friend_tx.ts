@@ -49,7 +49,7 @@ async function runTests() {
     data: {
       userId: creator.id,
       name: 'Test Category',
-      monthlyLimit: 1000.0,
+      limitAmount: 1000.0,
     },
   });
 
@@ -291,7 +291,7 @@ async function runTests() {
       data: {
         userId: friendB.id,
         name: 'Friend B Category',
-        monthlyLimit: 1000.0,
+        limitAmount: 1000.0,
       },
     });
 

@@ -7,3 +7,8 @@ dist/
 brain/
 skills-lock.json
 .antigravityignore
+
+# Local DB exports / data dumps (may contain user data)
+*_rows.csv
+*.dump
+*.sql.bak

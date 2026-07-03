@@ -102,8 +102,8 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
       }}
     >
       {/* Header */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
+      <div className="flex items-start justify-between gap-2 mb-4">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
           {/* Avatar */}
           <div className="shrink-0">
             <Avatar
@@ -114,11 +114,11 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
               frameClass={post.user.activeFrame?.cssClass || undefined}
             />
           </div>
-          <div>
-            <h3 className="font-semibold text-foreground text-sm leading-tight">
+          <div className="min-w-0">
+            <h3 className="font-semibold text-foreground text-sm leading-tight truncate">
               {displayName}
             </h3>
-            <div className="flex items-center gap-2 text-xs text-muted mt-0.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted mt-0.5">
               <span>{formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })}</span>
               <span>•</span>
               <div className="flex items-center gap-1">
@@ -138,7 +138,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {/* Post Type Badge */}
           <span className={`px-3 py-1 text-[11px] font-bold rounded-full uppercase tracking-wider ${getBadgeStyle()}`}>
             {post.type.replace(/_ADDED|_COMPLETED|_EARNED|_MILESTONE/g, '').toLowerCase()}
@@ -211,7 +211,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
                               try {
                                 await deletePost(post.id);
                               } catch (err: unknown) {
-                                const error = err as any;
+                                const error = err as { response?: { data?: { error?: string } } };
                                 setDialogConfig({
                                   isOpen: true,
                                   title: 'Error',
@@ -331,12 +331,14 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
       </div>
 
       {/* Interactions Row (Reactions and Comments button aligned together) */}
-      <div className="flex items-center justify-between gap-6 border-t border-border-subtle pt-3.5 mt-5">
-        <ReactionBar postId={post.id} reactions={post.reactions} />
-        
+      <div className="flex items-start justify-between gap-3 sm:gap-6 border-t border-border-subtle pt-3.5 mt-5">
+        <div className="min-w-0 flex-1">
+          <ReactionBar postId={post.id} reactions={post.reactions} />
+        </div>
+
         <button
           onClick={() => setShowComments(!showComments)}
-          className="text-secondary text-[14px] font-bold hover:underline transition-all duration-100 active:scale-95 cursor-pointer flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-secondary/30 rounded-lg px-2 py-1 select-none shrink-0"
+          className="text-secondary text-[14px] font-bold hover:underline transition-all duration-100 active:scale-95 cursor-pointer flex items-center gap-1.5 focus:outline-none focus:ring-2 focus:ring-secondary/30 rounded-lg px-2 py-1 select-none shrink-0 mt-1.5"
           aria-expanded={showComments}
         >
           <MessageSquare className="w-[16px] h-[16px] text-secondary" />

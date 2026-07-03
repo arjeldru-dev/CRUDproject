@@ -22,6 +22,7 @@ import { StreakWidget } from '../components/gamification/StreakWidget';
 import { ActiveChallengeCard } from '../components/gamification/ActiveChallengeCard';
 import { FinancialOverviewPanel } from '../components/ui/FinancialOverviewPanel';
 import { BudgetForecastBarChart } from '../components/ui/BudgetForecastBarChart';
+import { periodName, type BudgetPeriod } from '../lib/budgetPeriod';
 
 /** Shape of a balance entry from GET /api/transactions/balances */
 interface Balance {
@@ -35,13 +36,15 @@ interface Balance {
 interface BudgetStatus {
   categoryId: string;
   categoryName: string;
-  monthlyLimit: number;
+  limitAmount: number;
   spent: number;
   remaining: number;
   projectedSpend?: number;
   status?: string;
   insightText?: string;
   alertText?: string;
+  period?: BudgetPeriod;
+  periodLabel?: string;
 }
 
 interface PendingTransaction {
@@ -94,15 +97,11 @@ const Dashboard: React.FC = () => {
     setDataLoading(true);
     setDataError(false);
     try {
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
-      const clientNow = now.toISOString();
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
       const [balancesRes, budgetRes, pendingRes] = await Promise.all([
         api.get('/transactions/balances'),
-        api.get(`/transactions/budget?monthStart=${monthStart}&monthEnd=${monthEnd}&now=${clientNow}&daysInMonth=${daysInMonth}`),
+        api.get(`/transactions/budget?timezone=${encodeURIComponent(timezone)}`),
         api.get('/transactions/pending'),
       ]);
       setBalances(balancesRes.data.balances || []);
@@ -138,7 +137,7 @@ const Dashboard: React.FC = () => {
       // Success! Refresh dashboard data
       fetchDashboardData();
     } catch (err: unknown) {
-      const error = err as any;
+      const error = err as { response?: { data?: { error?: string } } };
       setDialogConfig({
         isOpen: true,
         title: 'Error',
@@ -550,7 +549,7 @@ const Dashboard: React.FC = () => {
                       </p>
                       {!isNew && (
                         <p className="text-xs text-muted font-medium mt-3 pt-3 border-t border-border/50">
-                          Projected end of month: <span className="text-foreground">{fmt(bs.projectedSpend || 0)}</span>
+                          Projected for {bs.periodLabel ? bs.periodLabel.toLowerCase() : 'this period'}: <span className="text-foreground">{fmt(bs.projectedSpend || 0)}</span>
                         </p>
                       )}
                     </div>
@@ -575,11 +574,12 @@ const Dashboard: React.FC = () => {
                 <BudgetForecastBarChart
                   key={bs.categoryId}
                   categoryName={bs.categoryName}
-                  monthlyLimit={bs.monthlyLimit}
+                  limitAmount={bs.limitAmount}
                   spent={bs.spent}
                   remaining={bs.remaining}
                   projectedSpend={bs.projectedSpend}
                   status={bs.status}
+                  periodLabel={periodName(bs.period)}
                 />
               ))}
             </div>

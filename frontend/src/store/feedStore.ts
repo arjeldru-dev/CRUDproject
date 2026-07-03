@@ -39,6 +39,27 @@ export interface FeedPost {
   commentCount: number;
 }
 
+export interface ReactionCount {
+  emoji: string;
+  count: number;
+}
+
+export interface Reactor {
+  emoji: string;
+  user: {
+    username: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    activeFrame?: { cssClass: string } | null;
+  };
+}
+
+export interface CommentReactionResult {
+  userReaction: string | null;
+  reactions: ReactionCount[];
+  reactionCount: number;
+}
+
 export interface Comment {
   id: string;
   postId: string;
@@ -47,8 +68,9 @@ export interface Comment {
   text: string;
   createdAt: string;
   isOwn: boolean;
-  likesCount: number;
-  userLiked: boolean;
+  reactions: ReactionCount[];
+  userReaction: string | null;
+  reactionCount: number;
   user: {
     username: string | null;
     displayName: string | null;
@@ -67,7 +89,9 @@ interface FeedState {
   fetchFeed: (reset?: boolean) => Promise<void>;
   reactToPost: (postId: string, emoji: string) => Promise<void>;
   addComment: (postId: string, text: string, parentId?: string | null) => Promise<Comment | null>;
-  likeComment: (commentId: string) => Promise<{ liked: boolean; likesCount: number } | null>;
+  reactToComment: (commentId: string, emoji: string) => Promise<CommentReactionResult | null>;
+  fetchPostReactors: (postId: string) => Promise<Reactor[]>;
+  fetchCommentReactors: (commentId: string) => Promise<Reactor[]>;
   deleteComment: (postId: string, commentId: string) => Promise<void>;
   deletePost: (postId: string) => Promise<void>;
   updatePostMessage: (postId: string, message: string) => Promise<void>;
@@ -75,6 +99,36 @@ interface FeedState {
 }
 
 let fetchAbortController: AbortController | null = null;
+
+/**
+ * Apply a single-reaction-per-user change to a post's reaction list:
+ * tapping your current emoji removes it; tapping another switches to it.
+ */
+function applySingleReaction(
+  reactions: FeedPost['reactions'],
+  emoji: string
+): FeedPost['reactions'] {
+  const list = reactions.map((r) => ({ ...r }));
+  const current = list.find((r) => r.userReacted);
+
+  if (current && current.emoji === emoji) {
+    current.count -= 1;
+    current.userReacted = false;
+    return list.filter((r) => r.count > 0);
+  }
+  if (current) {
+    current.count -= 1;
+    current.userReacted = false;
+  }
+  const target = list.find((r) => r.emoji === emoji);
+  if (target) {
+    target.count += 1;
+    target.userReacted = true;
+  } else {
+    list.push({ emoji, count: 1, userReacted: true });
+  }
+  return list.filter((r) => r.count > 0);
+}
 
 export const useFeedStore = create<FeedState>((set, get) => ({
   posts: [],
@@ -118,7 +172,7 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         });
       }
     } catch (err: unknown) {
-      const error = err as any;
+      const error = err as { name?: string; code?: string; response?: { data?: { error?: string } } };
       if (error.name === 'CanceledError' || error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
         return;
       }
@@ -141,34 +195,9 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     const { posts } = get();
     const originalPosts = [...posts];
 
-    const updatedPosts = posts.map(post => {
-      if (post.id === postId) {
-        const reactions = [...post.reactions];
-        const reactionIndex = reactions.findIndex(r => r.emoji === emoji);
-
-        if (reactionIndex > -1) {
-          const reaction = { ...reactions[reactionIndex] };
-          reactions[reactionIndex] = reaction;
-          if (reaction.userReacted) {
-            // Remove
-            reaction.count--;
-            reaction.userReacted = false;
-            if (reaction.count === 0) {
-              reactions.splice(reactionIndex, 1);
-            }
-          } else {
-            // Add to existing emoji count
-            reaction.count++;
-            reaction.userReacted = true;
-          }
-        } else {
-          // New emoji reaction
-          reactions.push({ emoji, count: 1, userReacted: true });
-        }
-        return { ...post, reactions };
-      }
-      return post;
-    });
+    const updatedPosts = posts.map(post =>
+      post.id === postId ? { ...post, reactions: applySingleReaction(post.reactions, emoji) } : post
+    );
 
     set({ posts: updatedPosts });
 
@@ -203,14 +232,24 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     }
   },
 
-  likeComment: async (commentId: string) => {
+  reactToComment: async (commentId: string, emoji: string) => {
     try {
-      const response = await api.post(`/feed/comment/${commentId}/like`);
-      return response.data;
+      const response = await api.post(`/feed/comment/${commentId}/react`, { emoji });
+      return response.data as CommentReactionResult;
     } catch (err: unknown) {
-      console.error('Failed to like comment:', err);
+      console.error('Failed to react to comment:', err);
       return null;
     }
+  },
+
+  fetchPostReactors: async (postId: string) => {
+    const response = await api.get(`/feed/${postId}/reactions`);
+    return (response.data.reactors || []) as Reactor[];
+  },
+
+  fetchCommentReactors: async (commentId: string) => {
+    const response = await api.get(`/feed/comment/${commentId}/reactions`);
+    return (response.data.reactors || []) as Reactor[];
   },
 
   deleteComment: async (postId: string, commentId: string) => {

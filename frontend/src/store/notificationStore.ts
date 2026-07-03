@@ -69,7 +69,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
         loading: false,
       }));
     } catch (err: unknown) {
-      const error = err as any;
+      const error = err as { response?: { data?: { error?: string } } };
       set({ error: error.response?.data?.error || 'Failed to fetch notifications', loading: false });
     }
   },

@@ -2,14 +2,16 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../lib/api';
 import { Wallet, AlertCircle, ShoppingBag, Utensils, Plane, Zap, PiggyBank, Film, Activity } from 'lucide-react';
-import { getCategoryColor } from '../ui/SpendingDonutChart';
+import { getCategoryColor } from '../ui/categoryColor';
+import { periodName, type BudgetPeriod } from '../../lib/budgetPeriod';
 
 interface CategoryBudget {
   categoryId: string;
   categoryName: string;
-  monthlyLimit: number;
+  limitAmount: number;
   spent: number;
   remaining: number;
+  period?: BudgetPeriod;
 }
 
 const getCategoryMeta = (categoryName: string) => {
@@ -91,15 +93,8 @@ const FeedBudgetSidebar: React.FC = () => {
   const fetchCategories = useCallback(async () => {
     try {
       setError('');
-      const now = new Date();
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString();
-      const clientNow = now.toISOString();
-      const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-
-      const res = await api.get(
-        `/transactions/budget?monthStart=${monthStart}&monthEnd=${monthEnd}&now=${clientNow}&daysInMonth=${daysInMonth}`
-      );
+      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const res = await api.get(`/transactions/budget?timezone=${encodeURIComponent(timezone)}`);
       setCategories(res.data.budgetStatuses || []);
     } catch (err) {
       console.error('Failed to load categories sidebar:', err);
@@ -154,7 +149,7 @@ const FeedBudgetSidebar: React.FC = () => {
       ) : categories.length === 0 ? (
         <div className="text-center py-6 px-4">
           <p className="text-xs text-muted font-sans leading-relaxed">
-            No budget categories defined for this month yet.
+            No budget categories defined yet.
           </p>
           <Link
             to="/categories"
@@ -168,8 +163,8 @@ const FeedBudgetSidebar: React.FC = () => {
           <div className="grid grid-cols-2 gap-3">
             {categories.slice(0, 4).map((cat) => {
               const meta = getCategoryMeta(cat.categoryName);
-              const percent = cat.monthlyLimit > 0 ? (cat.spent / cat.monthlyLimit) * 100 : 0;
-              const isOver = cat.spent > cat.monthlyLimit;
+              const percent = cat.limitAmount > 0 ? (cat.spent / cat.limitAmount) * 100 : 0;
+              const isOver = cat.spent > cat.limitAmount;
 
               return (
                 <div
@@ -179,6 +174,9 @@ const FeedBudgetSidebar: React.FC = () => {
                   <span className="text-xs sm:text-sm font-semibold text-foreground truncate w-full block px-1" title={cat.categoryName}>
                     {cat.categoryName}
                   </span>
+                  {cat.period && (
+                    <span className="text-[9px] text-muted/70 font-medium -mt-1">{periodName(cat.period)}</span>
+                  )}
 
                   <div className="flex items-center justify-center">
                     <ProgressRing percent={percent} color={meta.color} isOver={isOver} size="md" />

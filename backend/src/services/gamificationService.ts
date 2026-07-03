@@ -425,7 +425,7 @@ export const gamificationService = {
       });
 
       for (const cat of categories) {
-        const limit = Number(cat.monthlyLimit);
+        const limit = Number(cat.limitAmount);
         if (limit <= 0) continue;
 
         const spentAgg = await prisma.ledgerEntry.aggregate({
@@ -521,7 +521,7 @@ export const gamificationService = {
       let anyOverBudget = false;
       for (const cat of categories) {
         const spent = spentByCategory[cat.id] || 0;
-        const limit = Number(cat.monthlyLimit);
+        const limit = Number(cat.limitAmount);
         if (spent > limit) {
           anyOverBudget = true;
           break;
@@ -933,7 +933,7 @@ export const gamificationService = {
           const category = categories.find((c) => c.id === challenge.categoryId);
           if (category) {
             const spent = spentByCategory[category.id] || 0;
-            if (spent > Number(category.monthlyLimit)) {
+            if (spent > Number(category.limitAmount)) {
               hasFailed = true;
             }
           }
@@ -941,7 +941,7 @@ export const gamificationService = {
           // Check all categories
           for (const cat of categories) {
             const spent = spentByCategory[cat.id] || 0;
-            if (spent > Number(cat.monthlyLimit)) {
+            if (spent > Number(cat.limitAmount)) {
               hasFailed = true;
               break;
             }

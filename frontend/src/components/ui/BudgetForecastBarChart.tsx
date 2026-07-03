@@ -3,19 +3,21 @@ import { AlertTriangle, TrendingUp, Lightbulb } from 'lucide-react';
 
 interface BudgetForecastBarChartProps {
   categoryName: string;
-  monthlyLimit: number;
+  limitAmount: number;
   spent: number;
   remaining: number;
   projectedSpend?: number;
   status?: string;
+  periodLabel?: string;
 }
 
 const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = ({
   categoryName,
-  monthlyLimit,
+  limitAmount,
   spent,
   projectedSpend,
   status,
+  periodLabel,
 }) => {
   const fmt = (n: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -25,19 +27,19 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
       maximumFractionDigits: 2,
     }).format(n);
 
-  const hasLimit = monthlyLimit > 0;
+  const hasLimit = limitAmount > 0;
 
   // Percentage Calculations
-  const pctSpent = hasLimit ? (spent / monthlyLimit) * 100 : 0;
+  const pctSpent = hasLimit ? (spent / limitAmount) * 100 : 0;
   const pctProjected = hasLimit && projectedSpend && projectedSpend > 0
-    ? (projectedSpend / monthlyLimit) * 100
+    ? (projectedSpend / limitAmount) * 100
     : 0;
 
-  const isOverBudget = status ? status === 'OVER_BUDGET' : (hasLimit && spent > monthlyLimit);
+  const isOverBudget = status ? status === 'OVER_BUDGET' : (hasLimit && spent > limitAmount);
   const isAtRisk = status ? status === 'AT_RISK' : (pctProjected >= 85 && pctSpent >= 30);
   const isProjectedOverBudget = status
-    ? (status === 'AT_RISK' && projectedSpend && projectedSpend > monthlyLimit)
-    : (hasLimit && projectedSpend && projectedSpend > monthlyLimit);
+    ? (status === 'AT_RISK' && projectedSpend && projectedSpend > limitAmount)
+    : (hasLimit && projectedSpend && projectedSpend > limitAmount);
 
   // Determine progress colors
   let progressColorClass = 'bg-success';
@@ -98,9 +100,9 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
           {!hasLimit ? (
             'No Limit Set'
           ) : isOverBudget ? (
-            `+${fmt(spent - monthlyLimit)} over`
+            `+${fmt(spent - limitAmount)} over`
           ) : (
-            `+${fmt(monthlyLimit - spent)} left`
+            `+${fmt(limitAmount - spent)} left`
           )}
         </span>
       </div>
@@ -148,7 +150,7 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
         </div>
         
         <div className="text-right flex flex-col gap-0.5 shrink-0">
-          <span>Limit: <span className="font-mono">{hasLimit ? fmt(monthlyLimit) : '—'}</span></span>
+          <span>Limit: <span className="font-mono">{hasLimit ? fmt(limitAmount) : '—'}</span>{periodLabel ? ` · ${periodLabel}` : ''}</span>
           {hasLimit && (
             <span className={isOverBudget ? 'text-error' : isProjectedOverBudget ? 'text-error' : isAtRisk ? 'text-warning' : 'text-success'}>
               {isOverBudget ? 'Over Budget' : isProjectedOverBudget ? 'Predicts Overspend' : isAtRisk ? 'At Risk' : 'On Track'}
