@@ -16,6 +16,8 @@ import ReactorsModal from './ReactorsModal';
 
 interface CommentThreadProps {
   postId: string;
+  /** The post card element; used to scope the reactors-modal blur to this post. */
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
 /** Optimistic single-reaction transform for a comment. */
@@ -105,7 +107,7 @@ const CommentReactionControls: React.FC<{
   );
 };
 
-const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
+const CommentThread: React.FC<CommentThreadProps> = ({ postId, anchorRef }) => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [newComment, setNewComment] = useState('');
@@ -412,6 +414,7 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId }) => {
         isOpen={reactorsCommentId !== null}
         onClose={() => setReactorsCommentId(null)}
         fetchReactors={() => fetchCommentReactors(reactorsCommentId as string)}
+        anchorRef={anchorRef}
       />
 
       {dialogConfig && (

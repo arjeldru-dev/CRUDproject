@@ -12,9 +12,11 @@ interface ReactionBarProps {
     count: number;
     userReacted: boolean;
   }>;
+  /** The post card element; used to scope the reactors-modal blur to this post. */
+  anchorRef?: React.RefObject<HTMLElement | null>;
 }
 
-const ReactionBar: React.FC<ReactionBarProps> = ({ postId, reactions }) => {
+const ReactionBar: React.FC<ReactionBarProps> = ({ postId, reactions, anchorRef }) => {
   const reactToPost = useFeedStore((state) => state.reactToPost);
   const fetchPostReactors = useFeedStore((state) => state.fetchPostReactors);
   const [showReactors, setShowReactors] = useState(false);
@@ -65,6 +67,7 @@ const ReactionBar: React.FC<ReactionBarProps> = ({ postId, reactions }) => {
         isOpen={showReactors}
         onClose={() => setShowReactors(false)}
         fetchReactors={() => fetchPostReactors(postId)}
+        anchorRef={anchorRef}
       />
     </div>
   );

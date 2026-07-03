@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { TrendingUp, CreditCard, CheckCircle, Target, MoreHorizontal, Trash2, Eye, EyeOff, Lock, Edit3, Award, Trophy, Flame, MessageSquare } from 'lucide-react';
 import { useFeedStore, type FeedPost } from '../../store/feedStore';
@@ -16,6 +16,7 @@ interface FeedPostCardProps {
 const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) => {
   const { user } = useAuthStore();
   const { deletePost, togglePostPrivacy, updatePostMessage } = useFeedStore();
+  const cardRef = useRef<HTMLElement>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editMessage, setEditMessage] = useState('');
@@ -95,6 +96,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
 
   return (
     <article 
+      ref={cardRef}
       className="bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md animate-stagger-card"
       style={{ 
         padding: '24px',
@@ -333,7 +335,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
       {/* Interactions Row (Reactions and Comments button aligned together) */}
       <div className="flex items-start justify-between gap-3 sm:gap-6 border-t border-border-subtle pt-3.5 mt-5">
         <div className="min-w-0 flex-1">
-          <ReactionBar postId={post.id} reactions={post.reactions} />
+          <ReactionBar postId={post.id} reactions={post.reactions} anchorRef={cardRef} />
         </div>
 
         <button
@@ -359,7 +361,7 @@ const FeedPostCard: React.FC<FeedPostCardProps> = React.memo(({ post, index }) =
 
       {/* Expanded Comment Box */}
       {showComments && (
-        <CommentThread postId={post.id} />
+        <CommentThread postId={post.id} anchorRef={cardRef} />
       )}
       {dialogConfig && (
         <ConfirmDialog
