@@ -10,7 +10,7 @@
     "start": "node dist/server.js",
     "predev": "node scripts/kill-port.js",
     "dev": "nodemon src/server.ts",
-    "build": "tsc",
+    "build": "prisma generate && tsc",
     "seed:gamification": "ts-node prisma/seed-gamification.ts"
   },
   "dependencies": {
