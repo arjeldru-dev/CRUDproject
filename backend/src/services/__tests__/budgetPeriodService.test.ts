@@ -133,6 +133,16 @@ test('DST: LA monthly March window still 31 total days', () => {
   assert.strictEqual(w.totalDays, 31);
 });
 
+test('DST: daysElapsed correct just after local midnight following spring-forward', () => {
+  // LA springs forward Mar 8 2026. Just after local midnight on Mar 10
+  // (00:15 PDT = 07:15Z) is the 10th day of the calendar-month window.
+  // A fixed-ms floor would report 9 here; calendar-day math must report 10.
+  const now = new Date('2026-03-10T07:15:00Z');
+  const w = getPeriodWindow('MONTHLY', {}, now, 'America/Los_Angeles');
+  assert.strictEqual(w.daysElapsed, 10);
+  assert.strictEqual(w.daysRemaining, 21);
+});
+
 // ── Summary ──────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {

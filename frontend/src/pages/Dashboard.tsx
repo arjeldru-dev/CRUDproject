@@ -43,6 +43,7 @@ interface BudgetStatus {
   status?: string;
   insightText?: string;
   alertText?: string;
+  lowConfidence?: boolean;
   period?: BudgetPeriod;
   periodLabel?: string;
 }
@@ -505,6 +506,8 @@ const Dashboard: React.FC = () => {
               const isAtRisk = bs.status === 'AT_RISK';
               const isNew = bs.status === 'NEW';
               const isSurplus = bs.status === 'SURPLUS';
+              // Early period with a concerning projection: cautionary, not alarming.
+              const isTrendingHigh = !isAtRisk && !isOverBudget && !!bs.lowConfidence;
               
               let iconColor = 'text-primary';
               let bgIconColor = 'bg-primary/10';
@@ -512,7 +515,7 @@ const Dashboard: React.FC = () => {
               if (isOverBudget) {
                 iconColor = 'text-error';
                 bgIconColor = 'bg-error/10';
-              } else if (isAtRisk) {
+              } else if (isAtRisk || isTrendingHigh) {
                 iconColor = 'text-warning';
                 bgIconColor = 'bg-warning/10';
               } else if (isSurplus) {
@@ -531,7 +534,7 @@ const Dashboard: React.FC = () => {
                 >
                   <div className="flex items-start gap-3">
                     <div className={`w-10 h-10 rounded-xl ${bgIconColor} flex items-center justify-center shrink-0`}>
-                      {(isOverBudget || isAtRisk) ? (
+                      {(isOverBudget || isAtRisk || isTrendingHigh) ? (
                         <AlertTriangle className={`w-5 h-5 ${iconColor}`} aria-hidden="true" />
                       ) : (
                         <TrendingUp className={`w-5 h-5 ${iconColor}`} aria-hidden="true" />
@@ -579,6 +582,7 @@ const Dashboard: React.FC = () => {
                   remaining={bs.remaining}
                   projectedSpend={bs.projectedSpend}
                   status={bs.status}
+                  lowConfidence={bs.lowConfidence}
                   periodLabel={periodName(bs.period)}
                 />
               ))}

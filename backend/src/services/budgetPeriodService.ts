@@ -150,7 +150,15 @@ export function getPeriodWindow(
   }
 
   const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / MS_PER_DAY));
-  const rawCurrentDay = Math.floor((now.getTime() - start.getTime()) / MS_PER_DAY) + 1;
+
+  // daysElapsed counts whole LOCAL calendar days from the window start to `now`.
+  // Deriving it from local calendar dates (rather than dividing a raw millisecond
+  // delta by 24h) keeps it correct across DST transitions, where a local day can
+  // be 23 or 25 hours long and a fixed-ms floor would drift by a day near midnight.
+  const startParts = getLocalDateParts(start, tz);
+  const startDayNumber = Date.UTC(startParts.year, startParts.month - 1, startParts.day) / MS_PER_DAY;
+  const nowDayNumber = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day) / MS_PER_DAY;
+  const rawCurrentDay = nowDayNumber - startDayNumber + 1;
   const daysElapsed = Math.min(totalDays, Math.max(1, rawCurrentDay));
   const daysRemaining = Math.max(0, totalDays - daysElapsed);
 

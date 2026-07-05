@@ -5,6 +5,9 @@ export interface ForecastParams {
   daysRemaining: number;
   categoryName: string;
   periodLabel?: string;
+  /** Length of the active period in days. Used to scale the risk debounce to
+   *  the period type (daily/weekly/monthly/custom) instead of a fixed day count. */
+  totalDays?: number;
 }
 
 export interface ForecastResult {
@@ -12,7 +15,22 @@ export interface ForecastResult {
   status: string;
   insightText: string;
   alertText: string;
+  /** True when the projection already trends toward overspend but too little of
+   *  the period has elapsed to trust it. The category stays ON_TRACK (no hard
+   *  alarm) but the copy/UI stay cautious rather than falsely reassuring. */
+  lowConfidence: boolean;
 }
+
+// A projection is only trustworthy once we have enough of the period behind us.
+// We accept EITHER 3 elapsed days (protects long periods from early large
+// transactions such as rent) OR a quarter of the period elapsed (lets short
+// periods — daily/weekly/short custom cycles — warn proportionally instead of
+// never). This replaces a fixed `daysElapsed >= 3` gate that made AT_RISK
+// unreachable for daily budgets and blocked ~29% of every weekly cycle.
+const MIN_SIGNAL_DAYS = 3;
+const MIN_SIGNAL_FRACTION = 0.25;
+const RISK_PROJECTION_RATIO = 0.85;
+const RISK_MIN_PCT = 30;
 
 export const generateSpendingForecast = ({
   spent,
@@ -20,35 +38,46 @@ export const generateSpendingForecast = ({
   daysElapsed,
   daysRemaining,
   categoryName,
+  totalDays,
 }: ForecastParams): ForecastResult => {
   let projectedSpend = 0;
   let status = 'NEW';
   let insightText = '';
   let alertText = '';
+  let lowConfidence = false;
 
   const fmt = (n: number) => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(n);
 
   if (spent === 0) {
     insightText = "Make transactions to unlock your forecast!";
   } else if (spent < 0) {
+    // Net negative spend: refunds, settlement reversals, or a budget top-up have
+    // put more back than was spent, leaving room beyond the nominal limit.
     status = 'SURPLUS';
     const surplus = Math.abs(spent);
     alertText = `Extra ${fmt(surplus)} available!`;
-    insightText = `You have ${fmt(surplus)} more than your ${fmt(limitAmount)} limit for ${categoryName.toLowerCase()}. Great job building a buffer!`;
+    insightText = `You have ${fmt(surplus)} in extra budget for ${categoryName.toLowerCase()} on top of your ${fmt(limitAmount)} limit. Great job building a buffer!`;
   } else {
+    // Linear run-rate projection. For a fully elapsed single-day window
+    // (daily / 1-day custom) daysRemaining is 0, so projectedSpend === spent.
     const dailyAverage = spent / daysElapsed;
     projectedSpend = spent + (dailyAverage * daysRemaining);
     const pct = limitAmount > 0 ? Math.round((spent / limitAmount) * 100) : 0;
 
-    // We only flag a category AT_RISK if at least 3 days have elapsed and 30% of the budget is used.
-    // This prevents premature/volatile alerts in the first 1-2 days of a new period,
-    // as early large transactions (e.g. paying rent) would skew forecasting projections.
+    const elapsedFraction = totalDays && totalDays > 0 ? daysElapsed / totalDays : 1;
+    const hasEnoughSignal = daysElapsed >= MIN_SIGNAL_DAYS || elapsedFraction >= MIN_SIGNAL_FRACTION;
+    const projectionTrendsOver =
+      limitAmount > 0 && projectedSpend >= limitAmount * RISK_PROJECTION_RATIO && pct >= RISK_MIN_PCT;
+
     if (spent > limitAmount && limitAmount > 0) {
       status = 'OVER_BUDGET';
-    } else if (projectedSpend >= limitAmount * 0.85 && limitAmount > 0 && pct >= 30 && daysElapsed >= 3) {
+    } else if (projectionTrendsOver && hasEnoughSignal) {
       status = 'AT_RISK';
     } else {
       status = 'ON_TRACK';
+      // Concerning projection but too early to trust it — stay ON_TRACK without
+      // the falsely reassuring "keep it up" copy that used to contradict the number.
+      lowConfidence = projectionTrendsOver;
     }
 
     if (status === 'OVER_BUDGET') {
@@ -69,11 +98,14 @@ export const generateSpendingForecast = ({
       } else {
         insightText = "Pace your spending to avoid exceeding the limit.";
       }
+    } else if (lowConfidence) {
+      alertText = `${pct}% budget used, still early.`;
+      insightText = `Spending is high early on for ${categoryName}. The forecast will sharpen as the period progresses.`;
     } else {
       alertText = `${pct}% budget used.`;
       insightText = `You're on track for ${categoryName}! Keep it up.`;
     }
   }
 
-  return { projectedSpend, status, insightText, alertText };
+  return { projectedSpend, status, insightText, alertText, lowConfidence };
 };

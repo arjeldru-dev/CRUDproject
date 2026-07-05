@@ -128,7 +128,7 @@ const FeedBudgetSidebar: React.FC = () => {
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 animate-pulse">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl p-3.5 flex flex-col items-center justify-center h-40 gap-2">
+            <div key={i} className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl p-3.5 flex flex-col items-center justify-center h-48 gap-2">
               <div className="h-3 bg-surface-hover rounded w-16" />
               <div className="w-20 h-20 rounded-full bg-surface-hover" />
               <div className="h-3.5 bg-surface-hover rounded w-12" />
@@ -169,14 +169,18 @@ const FeedBudgetSidebar: React.FC = () => {
               return (
                 <div
                   key={cat.categoryId}
-                  className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl p-3.5 flex flex-col items-center justify-center text-center transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm h-40 gap-2"
+                  className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl p-3.5 flex flex-col items-center justify-center text-center transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm h-48 gap-2"
                 >
-                  <span className="text-xs sm:text-sm font-semibold text-foreground truncate w-full block px-1" title={cat.categoryName}>
-                    {cat.categoryName}
-                  </span>
-                  {cat.period && (
-                    <span className="text-[9px] text-muted/70 font-medium -mt-1">{periodName(cat.period)}</span>
-                  )}
+                  <div className="w-full flex flex-col items-center gap-1 px-1">
+                    <span className="text-xs sm:text-sm font-semibold text-foreground leading-tight line-clamp-2 w-full" title={cat.categoryName}>
+                      {cat.categoryName}
+                    </span>
+                    {cat.period && (
+                      <span className="text-[9px] font-bold uppercase tracking-wide text-muted/70">
+                        {periodName(cat.period)}
+                      </span>
+                    )}
+                  </div>
 
                   <div className="flex items-center justify-center">
                     <ProgressRing percent={percent} color={meta.color} isOver={isOver} size="md" />

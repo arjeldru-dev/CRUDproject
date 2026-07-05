@@ -57,7 +57,7 @@ const FeedFriendsSidebar: React.FC = () => {
       {isLoading ? (
         <div className="grid grid-cols-2 gap-3 animate-pulse">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl p-3.5 flex flex-col items-center justify-center h-40 gap-2">
+            <div key={i} className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl p-3.5 flex flex-col items-center justify-center h-48 gap-2">
               <div className="w-14 h-14 rounded-full bg-surface-hover" />
               <div className="h-3 bg-surface-hover rounded w-16" />
               <div className="h-2.5 bg-surface-hover rounded w-12" />
@@ -149,14 +149,14 @@ const FeedFriendsSidebar: React.FC = () => {
                 <Link
                   key={friend.friendshipId}
                   to={`/profile/${friend.username}`}
-                  className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl overflow-hidden block transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm cursor-pointer h-40"
+                  className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl overflow-hidden block transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm cursor-pointer h-48"
                 >
                   {cardContent}
                 </Link>
               ) : (
                 <div
                   key={friend.friendshipId}
-                  className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm h-40"
+                  className="bg-surface-hover/20 dark:bg-surface-hover/10 rounded-2xl overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm h-48"
                 >
                   {cardContent}
                 </div>

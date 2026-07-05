@@ -9,6 +9,9 @@ interface BudgetForecastBarChartProps {
   projectedSpend?: number;
   status?: string;
   periodLabel?: string;
+  /** Projection trends over the limit but too little of the period has elapsed
+   *  to raise a hard alert. Rendered as a soft "Trending High" state. */
+  lowConfidence?: boolean;
 }
 
 const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = ({
@@ -18,6 +21,7 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
   projectedSpend,
   status,
   periodLabel,
+  lowConfidence = false,
 }) => {
   const fmt = (n: number) =>
     new Intl.NumberFormat('en-PH', {
@@ -37,9 +41,13 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
 
   const isOverBudget = status ? status === 'OVER_BUDGET' : (hasLimit && spent > limitAmount);
   const isAtRisk = status ? status === 'AT_RISK' : (pctProjected >= 85 && pctSpent >= 30);
-  const isProjectedOverBudget = status
-    ? (status === 'AT_RISK' && projectedSpend && projectedSpend > limitAmount)
-    : (hasLimit && projectedSpend && projectedSpend > limitAmount);
+  // Projected overspend is independent of AT_RISK: it also covers the early-period
+  // low-confidence case, so the label no longer silently disappears when the
+  // backend keeps a concerning projection at ON_TRACK.
+  const projectionOverLimit = hasLimit && !!projectedSpend && projectedSpend > limitAmount;
+  const isProjectedOverBudget = !isOverBudget && projectionOverLimit && (isAtRisk || lowConfidence);
+  // Soft warning tint applies to AT_RISK, projected-overspend, and low-confidence.
+  const isCautioned = isAtRisk || isProjectedOverBudget || lowConfidence;
 
   // Determine progress colors
   let progressColorClass = 'bg-success';
@@ -49,7 +57,7 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
   if (isOverBudget) {
     progressColorClass = 'bg-error';
     remainingColorClass = 'text-error';
-  } else if (isAtRisk || isProjectedOverBudget) {
+  } else if (isCautioned) {
     progressColorClass = 'bg-warning';
     projectionColorClass = 'bg-warning/40';
     remainingColorClass = 'text-warning';
@@ -71,7 +79,7 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
   return (
     <div 
       className={`bg-surface rounded-2xl transition-all duration-200 shadow-sm hover:shadow-md hover:bg-surface-hover/30 ease-out ${
-        isOverBudget ? 'border-error/20 bg-error/[0.01]' : isAtRisk ? 'border-warning/20 bg-warning/[0.01]' : ''
+        isOverBudget ? 'border-error/20 bg-error/[0.01]' : isCautioned ? 'border-warning/20 bg-warning/[0.01]' : ''
       }`}
       style={{ padding: '24px' }}
     >
@@ -81,10 +89,10 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
           {isOverBudget && (
             <AlertTriangle className="w-4 h-4 text-error animate-pulse shrink-0" aria-hidden="true" />
           )}
-          {!isOverBudget && isAtRisk && (
+          {!isOverBudget && isCautioned && (
             <AlertTriangle className="w-4 h-4 text-warning shrink-0" aria-hidden="true" />
           )}
-          {!isOverBudget && !isAtRisk && (
+          {!isOverBudget && !isCautioned && (
             projectedSpend && projectedSpend > 0 ? (
               <TrendingUp className="w-3.5 h-3.5 text-success shrink-0" aria-hidden="true" />
             ) : (
@@ -152,8 +160,16 @@ const BudgetForecastBarChartComponent: React.FC<BudgetForecastBarChartProps> = (
         <div className="text-right flex flex-col gap-0.5 shrink-0">
           <span>Limit: <span className="font-mono">{hasLimit ? fmt(limitAmount) : '—'}</span>{periodLabel ? ` · ${periodLabel}` : ''}</span>
           {hasLimit && (
-            <span className={isOverBudget ? 'text-error' : isProjectedOverBudget ? 'text-error' : isAtRisk ? 'text-warning' : 'text-success'}>
-              {isOverBudget ? 'Over Budget' : isProjectedOverBudget ? 'Predicts Overspend' : isAtRisk ? 'At Risk' : 'On Track'}
+            <span className={isOverBudget ? 'text-error' : isCautioned ? 'text-warning' : 'text-success'}>
+              {isOverBudget
+                ? 'Over Budget'
+                : isProjectedOverBudget
+                ? 'Predicts Overspend'
+                : isAtRisk
+                ? 'At Risk'
+                : lowConfidence
+                ? 'Trending High'
+                : 'On Track'}
             </span>
           )}
         </div>

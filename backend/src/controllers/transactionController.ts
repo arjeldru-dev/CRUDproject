@@ -903,6 +903,7 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
         daysRemaining: window.daysRemaining,
         categoryName: category.name,
         periodLabel: window.periodLabel,
+        totalDays: window.totalDays,
       });
 
       return {
