@@ -107,6 +107,146 @@ test('MONTHLY steady low spend stays ON_TRACK with confident reassurance', () =>
   assert.ok(/Keep it up/.test(r.insightText));
 });
 
+// ── Graded confidence ───────────────────────────────────────────────────────
+test('confidence is NONE when nothing has been spent', () => {
+  const r = generateSpendingForecast({
+    spent: 0, limitAmount: 1000, daysElapsed: 1, daysRemaining: 6, categoryName: 'Food', totalDays: 7,
+  });
+  assert.strictEqual(r.confidence, 'NONE');
+});
+
+test('confidence is LOW very early in a long period', () => {
+  const r = generateSpendingForecast({
+    spent: 200, limitAmount: 10000, daysElapsed: 1, daysRemaining: 29, categoryName: 'Food', totalDays: 30,
+  });
+  assert.strictEqual(r.confidence, 'LOW');
+});
+
+test('confidence is MEDIUM past the debounce but before the halfway mark', () => {
+  const r = generateSpendingForecast({
+    spent: 1000, limitAmount: 10000, daysElapsed: 5, daysRemaining: 25, categoryName: 'Food', totalDays: 30,
+  });
+  assert.strictEqual(r.confidence, 'MEDIUM');
+});
+
+test('confidence is HIGH once at least half the period has elapsed', () => {
+  const r = generateSpendingForecast({
+    spent: 5000, limitAmount: 10000, daysElapsed: 20, daysRemaining: 10, categoryName: 'Food', totalDays: 30,
+  });
+  assert.strictEqual(r.confidence, 'HIGH');
+});
+
+test('SURPLUS reports HIGH confidence', () => {
+  const r = generateSpendingForecast({
+    spent: -500, limitAmount: 3000, daysElapsed: 5, daysRemaining: 25, categoryName: 'Groceries', totalDays: 30,
+  });
+  assert.strictEqual(r.confidence, 'HIGH');
+});
+
+// ── Actionable pacing figures ────────────────────────────────────────────────
+test('recommendedDailySpend paces the remaining budget over the days left', () => {
+  const r = generateSpendingForecast({
+    spent: 1000, limitAmount: 10000, daysElapsed: 5, daysRemaining: 25, categoryName: 'Food', totalDays: 30,
+  });
+  // (10000 - 1000) / 25 = 360
+  assert.strictEqual(r.recommendedDailySpend, 360);
+});
+
+test('recommendedDailySpend is null when no days remain', () => {
+  const r = generateSpendingForecast({
+    spent: 100, limitAmount: 500, daysElapsed: 1, daysRemaining: 0, categoryName: 'Snacks', totalDays: 1,
+  });
+  assert.strictEqual(r.recommendedDailySpend, null);
+});
+
+test('recommendedDailySpend floors at 0 when already over the pace, never negative', () => {
+  const r = generateSpendingForecast({
+    spent: 900, limitAmount: 1000, daysElapsed: 5, daysRemaining: 5, categoryName: 'Food', totalDays: 10,
+  });
+  assert.ok(r.recommendedDailySpend !== null && r.recommendedDailySpend >= 0);
+});
+
+test('projectedOverage reports the projected excess over the limit', () => {
+  const r = generateSpendingForecast({
+    spent: 4000, limitAmount: 10000, daysElapsed: 5, daysRemaining: 25, categoryName: 'Shopping', totalDays: 30,
+  });
+  // dailyAvg 800 → projected 24000 → overage 14000
+  assert.strictEqual(r.projectedOverage, 14000);
+});
+
+test('projectedOverage is 0 while the projection stays within the limit', () => {
+  const r = generateSpendingForecast({
+    spent: 1000, limitAmount: 10000, daysElapsed: 5, daysRemaining: 25, categoryName: 'Shopping', totalDays: 30,
+  });
+  assert.strictEqual(r.projectedOverage, 0);
+});
+
+// ── Defensive input handling (robustness) ────────────────────────────────────
+test('never divides by zero: daysElapsed 0 is clamped to 1', () => {
+  const r = generateSpendingForecast({
+    spent: 100, limitAmount: 500, daysElapsed: 0, daysRemaining: 6, categoryName: 'Food', totalDays: 7,
+  });
+  assert.ok(Number.isFinite(r.projectedSpend), 'projection is finite, not Infinity');
+  // dailyAvg 100 (elapsed clamped to 1) → projected 100 + 100*6 = 700
+  assert.strictEqual(r.projectedSpend, 700);
+});
+
+test('non-finite numeric inputs never leak NaN/Infinity into the result', () => {
+  const r = generateSpendingForecast({
+    spent: Number.NaN,
+    limitAmount: Number.POSITIVE_INFINITY,
+    daysElapsed: Number.NaN,
+    daysRemaining: -5,
+    categoryName: 'Food',
+    totalDays: Number.NaN,
+  });
+  assert.ok(Number.isFinite(r.projectedSpend));
+  assert.ok(Number.isFinite(r.pctUsed));
+  assert.ok(Number.isFinite(r.projectedPct));
+  assert.ok(Number.isFinite(r.projectedOverage));
+  // spent coerced to 0 → NEW
+  assert.strictEqual(r.status, 'NEW');
+});
+
+test('negative daysRemaining is clamped so the projection equals spent', () => {
+  const r = generateSpendingForecast({
+    spent: 250, limitAmount: 1000, daysElapsed: 3, daysRemaining: -4, categoryName: 'Food', totalDays: 3,
+  });
+  assert.strictEqual(r.projectedSpend, 250);
+});
+
+test('zero limit never yields OVER_BUDGET or division artifacts', () => {
+  const r = generateSpendingForecast({
+    spent: 500, limitAmount: 0, daysElapsed: 3, daysRemaining: 4, categoryName: 'Food', totalDays: 7,
+  });
+  assert.notStrictEqual(r.status, 'OVER_BUDGET');
+  assert.strictEqual(r.pctUsed, 0);
+  assert.strictEqual(r.projectedOverage, 0);
+  assert.strictEqual(r.recommendedDailySpend, null);
+});
+
+test('projection is rounded to 2 decimals', () => {
+  const r = generateSpendingForecast({
+    spent: 100, limitAmount: 1000, daysElapsed: 3, daysRemaining: 4, categoryName: 'Food', totalDays: 7,
+  });
+  // dailyAvg 33.333… → projected 100 + 33.333*4 = 233.33 (2dp)
+  assert.strictEqual(r.projectedSpend, round2(r.projectedSpend));
+  assert.strictEqual(r.projectedSpend, 233.33);
+});
+
+test('missing category name degrades gracefully', () => {
+  const r = generateSpendingForecast({
+    spent: 100, limitAmount: 1000, daysElapsed: 3, daysRemaining: 4, categoryName: '' as unknown as string, totalDays: 7,
+  });
+  assert.ok(r.insightText.length > 0);
+  assert.ok(!/undefined|NaN/.test(r.insightText));
+});
+
+// helper mirrored from the service for the rounding assertion above
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
 // ── Summary ────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {

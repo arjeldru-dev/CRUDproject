@@ -1,99 +1,41 @@
 import { Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/db';
+import {
+  BUDGET_PERIODS,
+  type BudgetPeriod,
+  type PeriodSource,
+  ValidationError,
+  isBudgetPeriod,
+  normalizePeriodConfig,
+  validateLimitAmount,
+  validateName,
+} from '../services/categoryValidationService';
 
-const BUDGET_PERIODS = ['DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM'] as const;
-type BudgetPeriod = (typeof BUDGET_PERIODS)[number];
-const MAX_LIMIT = 999999999;
-
-interface NormalizedPeriodConfig {
-  period: BudgetPeriod;
-  monthlyStartDay: number | null;
-  weeklyStartDay: number | null;
-  customPeriodDays: number | null;
-  anchorDate: Date | null;
-}
-
-/** Merged view of period params from the request body over the existing row. */
-interface PeriodSource {
-  monthlyStartDay?: unknown;
-  weeklyStartDay?: unknown;
-  customPeriodDays?: unknown;
-  anchorDate?: unknown;
-}
-
-class ValidationError extends Error {}
-
-const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
-
-/** Normalize a YYYY-MM-DD (or ISO) string to a pure UTC-midnight Date. */
-function parseAnchorDate(value: unknown): Date {
-  if (typeof value !== 'string' && !(value instanceof Date)) {
-    throw new ValidationError('anchorDate must be a valid date');
-  }
-  const d = new Date(value as string);
-  if (isNaN(d.getTime())) throw new ValidationError('anchorDate must be a valid date');
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+/**
+ * Reject a name that collides (case-insensitively) with another of the user's
+ * categories. `excludeId` skips the row being renamed so a no-op rename passes.
+ * Throws ValidationError-style 409 via the returned message.
+ */
+async function assertNameAvailable(userId: string, name: string, excludeId?: string): Promise<boolean> {
+  const clash = await prisma.category.findFirst({
+    where: {
+      userId,
+      name: { equals: name, mode: Prisma.QueryMode.insensitive },
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { id: true },
+  });
+  return clash === null;
 }
 
 /**
- * Validate the period configuration and null out fields that don't apply to
- * the chosen period. Throws ValidationError (→ 400) on invalid input.
+ * True when an error is the Postgres unique-violation (P2002) from the
+ * (user_id, name) index — the atomic backstop for a write race that slips past
+ * `assertNameAvailable`.
  */
-function normalizePeriodConfig(period: BudgetPeriod, src: PeriodSource): NormalizedPeriodConfig {
-  const base: NormalizedPeriodConfig = {
-    period,
-    monthlyStartDay: null,
-    weeklyStartDay: null,
-    customPeriodDays: null,
-    anchorDate: null,
-  };
-
-  switch (period) {
-    case 'DAILY':
-      return base;
-
-    case 'WEEKLY': {
-      const wsd = src.weeklyStartDay;
-      if (!isInt(wsd) || wsd < 0 || wsd > 6) {
-        throw new ValidationError('weeklyStartDay must be an integer 0–6 for a weekly budget');
-      }
-      return { ...base, weeklyStartDay: wsd };
-    }
-
-    case 'MONTHLY': {
-      const msd = src.monthlyStartDay;
-      if (msd === undefined || msd === null) {
-        return base; // defaults to the calendar 1st
-      }
-      if (!isInt(msd) || !(msd === -1 || (msd >= 1 && msd <= 31))) {
-        throw new ValidationError('monthlyStartDay must be an integer 1–31, or -1 for "last day of month"');
-      }
-      return { ...base, monthlyStartDay: msd };
-    }
-
-    case 'CUSTOM': {
-      const days = src.customPeriodDays;
-      if (!isInt(days) || days < 1 || days > 366) {
-        throw new ValidationError('customPeriodDays must be an integer 1–366 for a custom budget');
-      }
-      if (src.anchorDate === undefined || src.anchorDate === null) {
-        throw new ValidationError('anchorDate is required for a custom budget');
-      }
-      return { ...base, customPeriodDays: days, anchorDate: parseAnchorDate(src.anchorDate) };
-    }
-
-    default:
-      throw new ValidationError(`period must be one of: ${BUDGET_PERIODS.join(', ')}`);
-  }
-}
-
-function validateLimitAmount(limitAmount: unknown): void {
-  if (typeof limitAmount !== 'number' || limitAmount < 0) {
-    throw new ValidationError('limitAmount must be a non-negative number');
-  }
-  if (limitAmount > MAX_LIMIT) {
-    throw new ValidationError(`limitAmount cannot exceed ${MAX_LIMIT}`);
-  }
+export function isUniqueNameViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 }
 
 /**
@@ -104,23 +46,28 @@ export const createCategory = async (req: Request, res: Response) => {
   try {
     const { name, limitAmount, period } = req.body;
 
-    if (!name || limitAmount === undefined || limitAmount === null) {
+    if (name === undefined || name === null || limitAmount === undefined || limitAmount === null) {
       return res.status(400).json({ error: 'Name and limitAmount are required' });
     }
 
-    validateLimitAmount(limitAmount);
+    const normalizedName = validateName(name);
+    const normalizedLimit = validateLimitAmount(limitAmount);
 
     const effectivePeriod: BudgetPeriod = period ?? 'MONTHLY';
-    if (!BUDGET_PERIODS.includes(effectivePeriod)) {
+    if (!isBudgetPeriod(effectivePeriod)) {
       return res.status(400).json({ error: `period must be one of: ${BUDGET_PERIODS.join(', ')}` });
     }
 
     const config = normalizePeriodConfig(effectivePeriod, req.body);
 
+    if (!(await assertNameAvailable(req.user.id, normalizedName))) {
+      return res.status(409).json({ error: `A category named "${normalizedName}" already exists.` });
+    }
+
     const category = await prisma.category.create({
       data: {
-        name,
-        limitAmount,
+        name: normalizedName,
+        limitAmount: normalizedLimit,
         userId: req.user.id,
         ...config,
       },
@@ -130,6 +77,9 @@ export const createCategory = async (req: Request, res: Response) => {
   } catch (error) {
     if (error instanceof ValidationError) {
       return res.status(400).json({ error: error.message });
+    }
+    if (isUniqueNameViolation(error)) {
+      return res.status(409).json({ error: 'A category with that name already exists.' });
     }
     console.error('Create category error:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -165,15 +115,16 @@ export const updateCategory = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { name, limitAmount } = req.body;
+    const touchesName = name !== undefined && name !== null;
+    const touchesLimit = limitAmount !== undefined && limitAmount !== null;
     const touchesPeriod = PERIOD_PARAM_KEYS.some((k) => k in req.body);
 
-    if (!name && (limitAmount === undefined || limitAmount === null) && !touchesPeriod) {
+    if (!touchesName && !touchesLimit && !touchesPeriod) {
       return res.status(400).json({ error: 'At least one field (name, limitAmount, or period config) is required' });
     }
 
-    if (limitAmount !== undefined) {
-      validateLimitAmount(limitAmount);
-    }
+    const normalizedName = touchesName ? validateName(name) : undefined;
+    const normalizedLimit = touchesLimit ? validateLimitAmount(limitAmount) : undefined;
 
     const existingCategory = await prisma.category.findUnique({ where: { id } });
     if (!existingCategory) {
@@ -183,13 +134,17 @@ export const updateCategory = async (req: Request, res: Response) => {
       return res.status(403).json({ error: 'Forbidden: You do not own this category' });
     }
 
+    if (normalizedName !== undefined && !(await assertNameAvailable(req.user.id, normalizedName, id))) {
+      return res.status(409).json({ error: `A category named "${normalizedName}" already exists.` });
+    }
+
     const updateData: Record<string, unknown> = {};
-    if (name) updateData.name = name;
-    if (limitAmount !== undefined) updateData.limitAmount = limitAmount;
+    if (normalizedName !== undefined) updateData.name = normalizedName;
+    if (normalizedLimit !== undefined) updateData.limitAmount = normalizedLimit;
 
     if (touchesPeriod) {
       const effectivePeriod: BudgetPeriod = (req.body.period ?? existingCategory.period) as BudgetPeriod;
-      if (!BUDGET_PERIODS.includes(effectivePeriod)) {
+      if (!isBudgetPeriod(effectivePeriod)) {
         return res.status(400).json({ error: `period must be one of: ${BUDGET_PERIODS.join(', ')}` });
       }
       // Merge incoming params over the existing row so unchanged params are preserved.
@@ -211,6 +166,9 @@ export const updateCategory = async (req: Request, res: Response) => {
   } catch (error) {
     if (error instanceof ValidationError) {
       return res.status(400).json({ error: error.message });
+    }
+    if (isUniqueNameViolation(error)) {
+      return res.status(409).json({ error: 'A category with that name already exists.' });
     }
     console.error('Update category error:', error);
     return res.status(500).json({ error: 'Internal server error' });

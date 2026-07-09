@@ -111,6 +111,8 @@ model FriendProfile {
   friendUser    User?         @relation("GhostUserProfile", fields: [friendUserId], references: [id], onDelete: SetNull)
   ledgerEntries LedgerEntry[]
 
+  @@index([mainUserId])
+  @@index([friendUserId])
   @@map("friend_profiles")
 }
 
@@ -137,6 +139,13 @@ model Category {
   transactions Transaction[]
   challenges   Challenge[]
 
+  // A user cannot have two categories with the same name. Enforced atomically at
+  // the DB layer (backstops the app-level, case-insensitive assertNameAvailable
+  // check against write races). Case-sensitive here; the controller adds the
+  // case-insensitive rule and surfaces P2002 as a friendly 409.
+  @@unique([userId, name], map: "categories_user_id_name_key")
+  // Mirrors the pre-existing DB index so schema and database stay in sync.
+  @@index([userId], map: "categories_user_id_idx")
   @@map("categories")
 }
 
@@ -159,6 +168,8 @@ model Transaction {
   category      Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   ledgerEntries LedgerEntry[]
 
+  @@index([creatorId])
+  @@index([categoryId])
   @@map("transactions")
 }
 
@@ -181,6 +192,9 @@ model LedgerEntry {
   user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   friendProfile FriendProfile? @relation(fields: [friendProfileId], references: [id], onDelete: SetNull)
 
+  @@index([transactionId])
+  @@index([userId])
+  @@index([friendProfileId])
   @@map("ledger_entries")
 }
 
@@ -224,6 +238,7 @@ model Reaction {
 
   @@unique([postId, userId, emoji])
   @@index([postId])
+  @@index([userId])
   @@map("reactions")
 }
 
@@ -242,6 +257,8 @@ model Comment {
   likes     CommentLike[]
 
   @@index([postId, createdAt])
+  @@index([userId])
+  @@index([parentId])
   @@map("comments")
 }
 
@@ -256,6 +273,7 @@ model CommentLike {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([commentId, userId])
+  @@index([userId])
   @@map("comment_likes")
 }
 
@@ -326,6 +344,7 @@ model Notification {
   actor     User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([recipientId, read, createdAt])
+  @@index([actorId])
   @@map("notifications")
 }
 
@@ -390,6 +409,7 @@ model UserGamification {
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   activeFrame AvatarFrame? @relation(fields: [activeFrameId], references: [id], onDelete: SetNull)
 
+  @@index([activeFrameId])
   @@map("user_gamification")
 }
 
@@ -418,6 +438,7 @@ model UserBadge {
   badge Badge @relation(fields: [badgeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, badgeId])
+  @@index([badgeId])
   @@map("user_badges")
 }
 
@@ -452,6 +473,7 @@ model Challenge {
 
   @@index([creatorId])
   @@index([status])
+  @@index([categoryId])
   @@map("challenges")
 }
 
@@ -468,6 +490,7 @@ model ChallengeParticipant {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([challengeId, userId])
+  @@index([userId])
   @@map("challenge_participants")
 }
 
@@ -498,6 +521,7 @@ model PendingTransaction {
   creator              User                     @relation("PendingTransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
 
   @@index([groupId])
+  @@index([creatorId])
   @@map("pending_transactions")
 }
 

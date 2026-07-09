@@ -6,6 +6,11 @@ import { createNotification } from '../services/notificationService';
 import { generateSpendingForecast } from '../services/forecastingService';
 import { gamificationService } from '../services/gamificationService';
 import { getPeriodWindow } from '../services/budgetPeriodService';
+import {
+  validateAmount,
+  validateSplits,
+  validateMessage,
+} from '../services/transactionValidationService';
 import crypto from 'crypto';
 
 /** Returns true if the string is a valid IANA timezone the runtime accepts. */
@@ -40,15 +45,12 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    if (typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ error: 'Amount must be a positive number' });
-    }
-
-    // Verify sum of splits matches amount (allow small floating point difference)
-    const splitSum = splits.reduce((acc, split) => acc + (split.amount || 0), 0);
-    if (Math.abs(splitSum - amount) > 0.05) {
-      return res.status(400).json({ error: 'Sum of splits must equal total amount' });
-    }
+    // Hardened validation (rejects NaN/Infinity, over-limit, >2 decimals, and
+    // malformed/negative splits). Throws ValidationError → 400 via the outer
+    // catch, before any pending-approval rows or notifications are created.
+    validateAmount(amount);
+    const cleanMessage = validateMessage(message);
+    validateSplits(splits, amount);
 
     // Determine payer
     const userIsPayer = payerId === userId || payerId === 'self';
@@ -109,7 +111,7 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
             categoryId,
             amount: new Prisma.Decimal(amount),
             splits: splits as any,
-            message: message || null,
+            message: cleanMessage ?? null,
             isPrivate: isPrivate || false,
             allowFriendToPrivate: allowFriendToPrivate ?? true,
             type: 'EXPENSE',
@@ -417,7 +419,7 @@ export const createExpenseTransaction = async (req: Request, res: Response) => {
     const uniqueInvolvedFriendIds = Array.from(new Set(involvedFriendIds));
 
     // Call generateExpensePost with additional friends array
-    await feedService.generateExpensePost(result.transaction.id, message, isPrivate, allowFriendToPrivate, uniqueInvolvedFriendIds);
+    await feedService.generateExpensePost(result.transaction.id, cleanMessage, isPrivate, allowFriendToPrivate, uniqueInvolvedFriendIds);
 
     // Check for budget milestones
     const budgetEntry = result.ledgerEntries.find(le => le.type === 'BUDGET_DEDUCTION');
@@ -476,9 +478,8 @@ export const createSettlement = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Budget category is required for settlement' });
     }
 
-    if (typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ error: 'Amount must be a positive number' });
-    }
+    validateAmount(amount);
+    const cleanMessage = validateMessage(message);
 
     // Validate categoryId ownership if provided
     if (categoryId) {
@@ -512,7 +513,7 @@ export const createSettlement = async (req: Request, res: Response) => {
           categoryId: categoryId || null,
           amount: new Prisma.Decimal(amount),
           splits: [] as any,
-          message: message || null,
+          message: cleanMessage ?? null,
           isPrivate: isPrivate || false,
           allowFriendToPrivate: allowFriendToPrivate ?? true,
           type: 'SETTLEMENT',
@@ -707,7 +708,7 @@ export const createSettlement = async (req: Request, res: Response) => {
     }
 
     // ── Feed Post Generation ──────────────────────────────────────────
-    await feedService.generateSettlementPost(result.transaction.id, message, isPrivate, allowFriendToPrivate);
+    await feedService.generateSettlementPost(result.transaction.id, cleanMessage, isPrivate, allowFriendToPrivate);
 
     // Fire-and-forget gamification evaluation
     gamificationService.triggerGamificationUpdates(userId).catch(console.error);
@@ -952,9 +953,8 @@ export const createTopUp = async (req: Request, res: Response) => {
       });
     }
 
-    if (typeof amount !== 'number' || amount <= 0) {
-      return res.status(400).json({ error: 'Amount must be a positive number' });
-    }
+    validateAmount(amount);
+    validateMessage(message);
 
     const result = await prisma.$transaction(async (tx) => {
       // Validate category ownership

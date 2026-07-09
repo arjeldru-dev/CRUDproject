@@ -44,6 +44,11 @@ interface BudgetStatus {
   insightText?: string;
   alertText?: string;
   lowConfidence?: boolean;
+  confidence?: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
+  pctUsed?: number;
+  projectedPct?: number;
+  projectedOverage?: number;
+  recommendedDailySpend?: number | null;
   period?: BudgetPeriod;
   periodLabel?: string;
 }
@@ -551,9 +556,21 @@ const Dashboard: React.FC = () => {
                         {bs.insightText}
                       </p>
                       {!isNew && (
-                        <p className="text-xs text-muted font-medium mt-3 pt-3 border-t border-border/50">
-                          Projected for {bs.periodLabel ? bs.periodLabel.toLowerCase() : 'this period'}: <span className="text-foreground">{fmt(bs.projectedSpend || 0)}</span>
-                        </p>
+                        <div className="mt-3 pt-3 border-t border-border/50 space-y-1">
+                          <p className="text-xs text-muted font-medium">
+                            Projected for {bs.periodLabel ? bs.periodLabel.toLowerCase() : 'this period'}: <span className="text-foreground">{fmt(bs.projectedSpend || 0)}</span>
+                          </p>
+                          {isOverBudget && (bs.projectedOverage ?? 0) > 0 && (
+                            <p className="text-xs text-error font-medium">
+                              Projected overspend: <span className="font-semibold">{fmt(bs.projectedOverage || 0)}</span>
+                            </p>
+                          )}
+                          {!isOverBudget && bs.recommendedDailySpend != null && bs.recommendedDailySpend > 0 && (
+                            <p className="text-xs text-muted font-medium">
+                              Safe daily spend: <span className="text-foreground">{fmt(bs.recommendedDailySpend)}/day</span>
+                            </p>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

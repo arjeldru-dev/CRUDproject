@@ -60,6 +60,11 @@ const DEFAULT_PERIOD_FORM: PeriodFormState = {
   anchorDate: '',
 };
 
+// Mirrors the backend cap, which is pinned to the Decimal(10,2) column
+// (max 99,999,999.99). Keeping them in sync turns oversized limits into an
+// inline form error instead of a server 500.
+const MAX_LIMIT = 99_999_999.99;
+
 const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const PERIOD_OPTIONS: { value: BudgetPeriod; label: string }[] = [
   { value: 'DAILY', label: 'Daily' },
@@ -315,6 +320,7 @@ const Categories: React.FC = () => {
   const [editPeriod, setEditPeriod] = useState<PeriodFormState>(DEFAULT_PERIOD_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [editErrorId, setEditErrorId] = useState<string | null>(null);
+  const [editError, setEditError] = useState('');
 
   // ── Search State ────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
@@ -361,12 +367,12 @@ const Categories: React.FC = () => {
       setFormError('Category name cannot exceed 30 characters.');
       return;
     }
-    if (isNaN(limit) || limit < 0) {
+    if (!Number.isFinite(limit) || limit < 0) {
       setFormError('Budget limit must be a non-negative number.');
       return;
     }
-    if (limit > 999999999) {
-      setFormError('Budget limit cannot exceed ₱999,999,999.');
+    if (limit > MAX_LIMIT) {
+      setFormError('Budget limit cannot exceed ₱99,999,999.');
       return;
     }
 
@@ -399,19 +405,22 @@ const Categories: React.FC = () => {
   // ── Update Limit + Period ───────────────────────────────────────────
   const handleSaveCategory = async (categoryId: string) => {
     const newLimit = parseFloat(editLimit);
-    if (isNaN(newLimit) || newLimit < 0 || newLimit > 999999999) {
+    if (!Number.isFinite(newLimit) || newLimit < 0 || newLimit > MAX_LIMIT) {
       setEditErrorId(categoryId);
+      setEditError('Limit must be between ₱0 and ₱99,999,999.');
       return;
     }
 
     const { payload: periodPayload, error: periodError } = buildPeriodPayload(editPeriod);
     if (periodError) {
       setEditErrorId(categoryId);
+      setEditError(periodError);
       return;
     }
 
     setIsSaving(true);
     setEditErrorId(null);
+    setEditError('');
     try {
       await api.patch(`/categories/${categoryId}`, {
         limitAmount: newLimit,
@@ -419,8 +428,10 @@ const Categories: React.FC = () => {
       });
       setEditingId(null);
       fetchCategories();
-    } catch {
+    } catch (err) {
+      const apiError = err as { response?: { data?: { error?: string } } };
       setEditErrorId(categoryId);
+      setEditError(apiError.response?.data?.error || 'Failed to save changes. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -454,12 +465,14 @@ const Categories: React.FC = () => {
       anchorDate: cat.anchorDate ? cat.anchorDate.slice(0, 10) : '',
     });
     setEditErrorId(null);
+    setEditError('');
   };
 
   const cancelEditing = () => {
     setEditingId(null);
     setEditLimit('');
     setEditErrorId(null);
+    setEditError('');
   };
 
   // ── Filtered List ───────────────────────────────────────────────────
@@ -607,7 +620,7 @@ const Categories: React.FC = () => {
                   value={formLimit}
                   onChange={(e) => setFormLimit(e.target.value)}
                   min={0}
-                  max={999999999}
+                  max={MAX_LIMIT}
                   className="w-full h-11 bg-background border border-border rounded-xl px-4 text-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none transition-[border-color,box-shadow] duration-200 ease-out placeholder:text-muted/60 text-sm"
                   id="category-limit-input"
                 />
@@ -781,7 +794,7 @@ const Categories: React.FC = () => {
                                 if (e.key === 'Escape') cancelEditing();
                               }}
                               min={0}
-                              max={999999999}
+                              max={MAX_LIMIT}
                               autoFocus
                               id={`edit-limit-${cat.categoryId}`}
                               className={`w-28 px-2.5 py-1 bg-background border rounded-lg text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm h-9 transition-colors ${
@@ -809,6 +822,15 @@ const Categories: React.FC = () => {
                             onChange={setEditPeriod}
                             idPrefix={`edit-${cat.categoryId}`}
                           />
+                          {hasEditError && editError && (
+                            <div
+                              className="flex items-center gap-2 p-2.5 rounded-xl bg-error/10 border border-error/20 text-error text-xs font-sans animate-fadeInFast"
+                              role="alert"
+                            >
+                              <AlertCircle className="w-4 h-4 shrink-0" />
+                              <span>{editError}</span>
+                            </div>
+                          )}
                         </div>
                       )}
 

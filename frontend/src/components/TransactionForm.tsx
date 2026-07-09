@@ -43,6 +43,11 @@ interface Balance {
 
 type TransactionMode = 'expense' | 'settlement' | 'topup';
 
+// Mirrors the backend cap, pinned to the Decimal(10,2) amount columns
+// (max 99,999,999.99). Keeping them in sync turns an oversized amount into an
+// inline form error instead of a server 500.
+const MAX_AMOUNT = 99_999_999.99;
+
 interface TransactionFormProps {
   isOpen: boolean;
   onClose: () => void;
@@ -333,8 +338,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
     if (!amount || parsedAmount <= 0) {
       return 'Please enter a valid positive amount.';
     }
-    if (parsedAmount > 100000000) {
-      return 'Amount cannot exceed ₱100,000,000.00.';
+    if (parsedAmount > MAX_AMOUNT) {
+      return 'Amount cannot exceed ₱99,999,999.99.';
     }
     // Limit decimal precision input to 2 decimal places to avoid floating arithmetic bugs
     if (amount.includes('.') && amount.split('.')[1].length > 2) {
