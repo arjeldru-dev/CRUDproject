@@ -704,31 +704,118 @@ input.bg-surface:-webkit-autofill:active {
    PREMIUM AVATAR BORDER FRAMES
    ══════════════════════════════════════════════════════════════════════ */
 
+/* ── Shared base treatment (applied to every frame via Avatar.tsx) ──
+   Two GPU-friendly decorative layers behind the avatar content:
+     ::before → a slowly ROTATING conic sheen over the theme gradient
+                (polished-metal / holographic motion)
+     ::after  → a soft OUTER aura halo that gently pulses
+   Both sit behind the opaque avatar (negative z within an isolated stacking
+   context) so they only decorate the ring and never cover the photo. Animation
+   is limited to transform / opacity / background-position / filter, and is
+   suppressed at xs/sm sizes (.frame-static) and under reduced-motion. */
+.avatar-frame {
+  isolation: isolate;
+  background-size: 200% 200%;
+}
+.avatar-frame::before,
+.avatar-frame::after {
+  content: '';
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+.avatar-frame::before {
+  inset: 0;
+  z-index: -1;
+  background: conic-gradient(
+    from 0deg,
+    rgba(255, 255, 255, 0) 0deg,
+    rgba(255, 255, 255, 0.55) 60deg,
+    rgba(255, 255, 255, 0) 140deg,
+    rgba(255, 255, 255, 0) 360deg
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.7;
+}
+.avatar-frame::after {
+  inset: -3px;
+  z-index: -2;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0) 70%);
+  filter: blur(3px);
+  opacity: 0.6;
+}
+/* Motion only on md+ instances (avatars that are not .frame-static). */
+.avatar-frame:not(.frame-static)::before {
+  will-change: transform;
+  animation: frame-sheen-rotate 6s linear infinite;
+}
+.avatar-frame:not(.frame-static)::after {
+  will-change: opacity, transform;
+  animation: frame-aura-pulse 3.4s ease-in-out infinite;
+}
+/* Dense lists (xs/sm): keep the gradient ring + box-shadow glow, but drop the
+   continuous animation and the heavier rotating-sheen / blurred-aura pseudo
+   layers (which are the animated flourish, reserved for md+). */
+.avatar-frame.frame-static {
+  animation: none !important;
+}
+.avatar-frame.frame-static::before,
+.avatar-frame.frame-static::after {
+  display: none;
+}
+
+/* Feed comment avatars sit at the top-left of a tight overflow scroll container
+   (max-h + overflow-y-auto), so an outward glow on the first/leftmost avatar is
+   physically clipped by the scroll box. Inside the comment list ONLY we drop the
+   glow for a clean, fully-rendered ring; the glow is preserved everywhere else. */
+.comment-avatar-list .avatar-frame {
+  box-shadow: none !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   PREMIUM AVATAR BORDER FRAMES
+   ══════════════════════════════════════════════════════════════════════ */
+
 .avatar-frame-bronze {
   background: linear-gradient(135deg, #b27a50, #5c351c, #d5a57e);
+  background-size: 200% 200%;
   box-shadow: 0 0 8px rgba(178, 122, 80, 0.25), inset 0 1px 0.5px rgba(255, 255, 255, 0.2);
 }
 .dark .avatar-frame-bronze {
   background: linear-gradient(135deg, #d59f73, #784424, #f4cba4);
+  background-size: 200% 200%;
   box-shadow: 0 0 12px rgba(213, 159, 115, 0.45), inset 0 1px 0.5px rgba(255, 255, 255, 0.3);
+}
+.avatar-frame.avatar-frame-bronze:not(.frame-static) {
+  animation: frame-sheen-sweep 7s ease-in-out infinite;
 }
 
 .avatar-frame-silver {
   background: linear-gradient(135deg, #bdc3c7, #2c3e50, #eaedf1, #95a5a6);
+  background-size: 200% 200%;
   box-shadow: 0 0 8px rgba(149, 165, 166, 0.25), inset 0 1px 0.5px rgba(255, 255, 255, 0.3);
 }
 .dark .avatar-frame-silver {
   background: linear-gradient(135deg, #e2e8f0, #475569, #ffffff, #94a3b8);
+  background-size: 200% 200%;
   box-shadow: 0 0 12px rgba(226, 232, 240, 0.45), inset 0 1px 0.5px rgba(255, 255, 255, 0.4);
+}
+.avatar-frame.avatar-frame-silver:not(.frame-static) {
+  animation: frame-sheen-sweep 6.5s ease-in-out infinite;
 }
 
 .avatar-frame-gold {
   background: linear-gradient(135deg, #f59e0b, #78350f, #fef08a, #d97706);
+  background-size: 200% 200%;
   box-shadow: 0 0 10px rgba(245, 158, 11, 0.35), inset 0 1px 0.5px rgba(255, 255, 255, 0.3);
 }
 .dark .avatar-frame-gold {
   background: linear-gradient(135deg, #fbbf24, #92400e, #fef9c3, #f59e0b);
+  background-size: 200% 200%;
   box-shadow: 0 0 16px rgba(251, 191, 36, 0.55), inset 0 1px 0.5px rgba(255, 255, 255, 0.4);
+}
+.avatar-frame.avatar-frame-gold:not(.frame-static) {
+  animation: frame-sheen-sweep 6s ease-in-out infinite;
 }
 
 .avatar-frame-emerald {
@@ -739,6 +826,9 @@ input.bg-surface:-webkit-autofill:active {
   background: linear-gradient(135deg, #34d399, #064e3b, #a7f3d0);
   box-shadow: 0 0 18px rgba(52, 211, 153, 0.6), inset 0 1px 0.5px rgba(255, 255, 255, 0.4);
 }
+.avatar-frame.avatar-frame-emerald:not(.frame-static) {
+  animation: frame-breath 4s ease-in-out infinite;
+}
 
 .avatar-frame-fire {
   background: linear-gradient(135deg, #f97316, #b91c1c, #fbbf24);
@@ -747,6 +837,9 @@ input.bg-surface:-webkit-autofill:active {
 .dark .avatar-frame-fire {
   background: linear-gradient(135deg, #fb923c, #dc2626, #fde047);
   box-shadow: 0 0 20px rgba(251, 146, 60, 0.85), inset 0 1px 0.5px rgba(255, 255, 255, 0.4);
+}
+.avatar-frame.avatar-frame-fire:not(.frame-static) {
+  animation: frame-fire-pulse 2.2s ease-in-out infinite;
 }
 
 .avatar-frame-diamond {
@@ -758,6 +851,61 @@ input.bg-surface:-webkit-autofill:active {
   background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc, #38bdf8);
   background-size: 200% 200%;
   box-shadow: 0 0 24px rgba(56, 189, 248, 0.85), inset 0 1px 0.5px rgba(255, 255, 255, 0.5);
+}
+.avatar-frame.avatar-frame-diamond:not(.frame-static) {
+  animation: frame-diamond-shimmer 5s ease-in-out infinite;
+}
+
+/* ── New themed frames (distinct palettes) ── */
+
+/* Piggybank Pride — rose blush with a gentle heartbeat glow. */
+.avatar-frame-blush {
+  background: linear-gradient(135deg, #fbcfe8, #f472b6, #be185d);
+  background-size: 200% 200%;
+  box-shadow: 0 0 12px rgba(244, 114, 182, 0.45), inset 0 1px 0.5px rgba(255, 255, 255, 0.35);
+}
+.dark .avatar-frame-blush {
+  background: linear-gradient(135deg, #f9a8d4, #ec4899, #9d174d);
+  background-size: 200% 200%;
+  box-shadow: 0 0 18px rgba(236, 72, 153, 0.65), inset 0 1px 0.5px rgba(255, 255, 255, 0.4);
+}
+.avatar-frame.avatar-frame-blush:not(.frame-static) {
+  animation: frame-blush-beat 2.6s ease-in-out infinite;
+}
+
+/* Budget Master — royal amethyst + gold with a slow rotating sheen. */
+.avatar-frame-regal {
+  background: conic-gradient(from 0deg, #7c3aed, #c026d3, #f59e0b, #7c3aed);
+  box-shadow: 0 0 14px rgba(124, 58, 237, 0.5), inset 0 1px 0.5px rgba(255, 255, 255, 0.4);
+}
+.dark .avatar-frame-regal {
+  background: conic-gradient(from 0deg, #a78bfa, #e879f9, #fbbf24, #a78bfa);
+  box-shadow: 0 0 22px rgba(192, 38, 211, 0.7), inset 0 1px 0.5px rgba(255, 255, 255, 0.45);
+}
+/* Motion for regal comes from the shared rotating ::before sheen plus a prestige
+   glow pulse. We deliberately do NOT rotate/filter the wrapper itself (that would
+   spin/tint the avatar photo inside it). */
+.avatar-frame.avatar-frame-regal:not(.frame-static) {
+  animation: frame-regal-glow 4s ease-in-out infinite;
+}
+
+/* Vault Aura — iridescent aurora with a slow hue drift. */
+.avatar-frame-aurora {
+  background: conic-gradient(from 0deg, #22d3ee, #14b8a6, #8b5cf6, #ec4899, #22d3ee);
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.55), inset 0 1px 0.5px rgba(255, 255, 255, 0.4);
+}
+.dark .avatar-frame-aurora {
+  background: conic-gradient(from 0deg, #67e8f9, #2dd4bf, #a78bfa, #f0abfc, #67e8f9);
+  box-shadow: 0 0 24px rgba(167, 139, 250, 0.75), inset 0 1px 0.5px rgba(255, 255, 255, 0.45);
+}
+/* Aurora's hue drift runs on the ::before layer (behind the photo) so the
+   iridescent colours shift without tinting the avatar image. The wrapper holds a
+   static iridescent conic as the base ring colour. */
+.avatar-frame.avatar-frame-aurora:not(.frame-static)::before {
+  background: conic-gradient(from 0deg, #22d3ee, #14b8a6, #8b5cf6, #ec4899, #22d3ee);
+  mix-blend-mode: normal;
+  opacity: 0.6;
+  animation: frame-sheen-rotate 10s linear infinite, frame-aurora-drift 8s linear infinite;
 }
 
 /* Keyframe Animations */
@@ -792,6 +940,86 @@ input.bg-surface:-webkit-autofill:active {
   }
   100% {
     background-position: 0% 50%;
+  }
+}
+
+/* Metallic sheen sweep for bronze / silver / gold (background-position only). */
+@keyframes frame-sheen-sweep {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Shared rotating conic sheen on the ::before ring layer. */
+@keyframes frame-sheen-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Shared outer aura halo pulse on the ::after layer. */
+@keyframes frame-aura-pulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.75;
+    transform: scale(1.06);
+  }
+}
+
+/* Rose blush heartbeat. */
+@keyframes frame-blush-beat {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(244, 114, 182, 0.4), inset 0 1px 0.5px rgba(255, 255, 255, 0.3);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(236, 72, 153, 0.8), inset 0 1px 0.5px rgba(255, 255, 255, 0.45);
+    transform: scale(1.02);
+  }
+}
+
+/* Royal prestige glow (box-shadow only — never transforms the wrapper). */
+@keyframes frame-regal-glow {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(124, 58, 237, 0.45), inset 0 1px 0.5px rgba(255, 255, 255, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(245, 158, 11, 0.7), inset 0 1px 0.5px rgba(255, 255, 255, 0.5);
+  }
+}
+
+/* Iridescent aurora hue drift. */
+@keyframes frame-aurora-drift {
+  0% {
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    filter: hue-rotate(360deg);
+  }
+}
+
+/* Accessibility: honor reduced-motion — all frames fall back to the static
+   gradient + glow (no continuous animation on the wrapper or its layers). */
+@media (prefers-reduced-motion: reduce) {
+  .avatar-frame,
+  .avatar-frame::before,
+  .avatar-frame::after,
+  .avatar-frame.avatar-frame-bronze,
+  .avatar-frame.avatar-frame-silver,
+  .avatar-frame.avatar-frame-gold,
+  .avatar-frame.avatar-frame-emerald,
+  .avatar-frame.avatar-frame-fire,
+  .avatar-frame.avatar-frame-diamond,
+  .avatar-frame.avatar-frame-blush,
+  .avatar-frame.avatar-frame-regal,
+  .avatar-frame.avatar-frame-aurora {
+    animation: none !important;
   }
 }
 

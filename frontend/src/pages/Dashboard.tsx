@@ -16,12 +16,15 @@ import {
   Trophy,
   AlertCircle,
   RefreshCw,
+  Sparkles,
 } from 'lucide-react';
+import { useSpendingInsights } from '../hooks/useSpendingInsights';
 import { useGamificationStore } from '../store/gamificationStore';
 import { StreakWidget } from '../components/gamification/StreakWidget';
 import { ActiveChallengeCard } from '../components/gamification/ActiveChallengeCard';
 import { FinancialOverviewPanel } from '../components/ui/FinancialOverviewPanel';
 import { BudgetForecastBarChart } from '../components/ui/BudgetForecastBarChart';
+import { SavingsGraph } from '../components/ui/SavingsGraph';
 import { periodName, type BudgetPeriod } from '../lib/budgetPeriod';
 
 /** Shape of a balance entry from GET /api/transactions/balances */
@@ -51,6 +54,10 @@ interface BudgetStatus {
   recommendedDailySpend?: number | null;
   period?: BudgetPeriod;
   periodLabel?: string;
+  /** ISO end of the active period — used to derive daysRemaining for AI insights. */
+  periodEnd?: string;
+  /** Server-owned AI icon key (rendered elsewhere; carried for completeness). */
+  iconKey?: string | null;
 }
 
 interface PendingTransaction {
@@ -97,6 +104,11 @@ const Dashboard: React.FC = () => {
     type?: 'alert' | 'confirm' | 'prompt';
     onConfirm: (val?: string) => void;
   } | null>(null);
+
+  // ── AI-Enhanced Insights (lazy, off the critical render path) ──────────
+  // Fetches richer English copy for notable categories after budget data loads.
+  // Silent no-op when AI is unavailable — cards keep their heuristic insightText.
+  const { aiInsights } = useSpendingInsights(budgetStatuses);
 
   // ── Fetch Dashboard Data ──────────────────────────────────────────────
   const fetchDashboardData = useCallback(async () => {
@@ -495,6 +507,15 @@ const Dashboard: React.FC = () => {
         );
       })()}
 
+      {/* ── Savings Over Time ────────────────────────────────────────── */}
+      {/* Positioned directly below the Financial Overview section (Req 6.10). */}
+      <div className="mb-2 lg:mb-3">
+        <h2 className="text-2xl font-display font-semibold text-foreground tracking-tight mb-1.5 lg:mb-2">
+          Savings
+        </h2>
+        <SavingsGraph />
+      </div>
+
       {/* ── AI Spending Forecasting ──────────────────────────────────── */}
       {budgetStatuses.length > 0 && budgetStatuses.some(bs => bs.insightText) && (
         <div className="mb-2 lg:mb-3">
@@ -506,7 +527,14 @@ const Dashboard: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2.5">
             {budgetStatuses.map((bs, i) => {
               if (!bs.insightText) return null;
-              
+
+              // Prefer AI copy when it arrived for this category; otherwise keep
+              // the deterministic heuristic text. The "AI" pill only shows when
+              // AI text is actually in use.
+              const aiText = aiInsights[bs.categoryId];
+              const displayInsight = aiText || bs.insightText;
+              const isAiInsight = Boolean(aiText);
+
               const isOverBudget = bs.status === 'OVER_BUDGET';
               const isAtRisk = bs.status === 'AT_RISK';
               const isNew = bs.status === 'NEW';
@@ -546,14 +574,25 @@ const Dashboard: React.FC = () => {
                       )}
                     </div>
                     <div>
-                      <h3 className="text-sm font-semibold text-foreground">{bs.categoryName}</h3>
+                      <div className="flex items-center gap-1.5">
+                        <h3 className="text-sm font-semibold text-foreground">{bs.categoryName}</h3>
+                        {isAiInsight && (
+                          <span
+                            className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-semibold animate-fadeInFast"
+                            aria-label="AI-generated insight"
+                          >
+                            <Sparkles className="w-2.5 h-2.5" aria-hidden="true" />
+                            AI
+                          </span>
+                        )}
+                      </div>
                       {bs.alertText && (
                         <p className={`text-xs font-medium mt-0.5 ${iconColor}`}>
                           {bs.alertText}
                         </p>
                       )}
-                      <p className="text-sm text-muted mt-2 leading-relaxed">
-                        {bs.insightText}
+                      <p className="text-sm text-muted mt-2 leading-relaxed" aria-live="polite">
+                        {displayInsight}
                       </p>
                       {!isNew && (
                         <div className="mt-3 pt-3 border-t border-border/50 space-y-1">

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Trophy, Coffee, Car, AlertTriangle, CheckCircle, Clock, type LucideIcon } from 'lucide-react';
+import { Calendar, Trophy, Coffee, Car, PiggyBank, AlertTriangle, CheckCircle, Clock, type LucideIcon } from 'lucide-react';
 import { useGamificationStore } from '../../store/gamificationStore';
 import type { ChallengeWithDetails } from '../../store/gamificationStore';
 import Avatar from '../ui/Avatar';
@@ -9,6 +9,7 @@ const typeIcons: Record<string, LucideIcon> = {
   NO_OVERSPEND_MONTH: Trophy,
   COFFEE_FREE_WEEK: Coffee,
   TRANSPORT_SAVER: Car,
+  SAVINGS_TARGET: PiggyBank,
   CUSTOM: Trophy,
 };
 
@@ -17,6 +18,7 @@ const typeLabels: Record<string, string> = {
   NO_OVERSPEND_MONTH: 'No Overspend Month',
   COFFEE_FREE_WEEK: 'Coffee-Free Week',
   TRANSPORT_SAVER: 'Transport Saver',
+  SAVINGS_TARGET: 'Savings Sprint',
   CUSTOM: 'Custom Challenge',
 };
 
@@ -59,8 +61,10 @@ const ActiveChallengeCardComponent: React.FC = () => {
     participants,
     myStatus,
     daysRemaining,
+    targetAmount,
   } = activeChallenge;
 
+  const isSavingsTarget = type === 'SAVINGS_TARGET';
   const IconComponent = typeIcons[type] || Trophy;
 
   // Calculate duration and progress math directly to prevent conditional Hook errors
@@ -80,7 +84,9 @@ const ActiveChallengeCardComponent: React.FC = () => {
   // Layout customization based on status
   const cardClass = '';
   let barColor = 'bg-primary';
-  let statusText = `Day ${currentDay} of ${totalDays} - Stay under budget!`;
+  let statusText = isSavingsTarget
+    ? `Day ${currentDay} of ${totalDays} - Keep saving!`
+    : `Day ${currentDay} of ${totalDays} - Stay under budget!`;
   let badgeEl = null;
 
   if (isFailed) {
@@ -139,6 +145,11 @@ const ActiveChallengeCardComponent: React.FC = () => {
             <p className="text-xs text-muted mt-1 leading-snug truncate">
               {activeChallenge.description || `Stay under budget for ${typeLabels[type].toLowerCase()}!`}
             </p>
+            {isSavingsTarget && targetAmount != null && (
+              <p className="text-xs font-semibold text-primary mt-1">
+                Target: ₱{targetAmount.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
+              </p>
+            )}
           </div>
         </div>
 

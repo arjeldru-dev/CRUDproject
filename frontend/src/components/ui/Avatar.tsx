@@ -115,11 +115,24 @@ const Avatar: React.FC<AvatarProps> = ({
     );
   };
 
+  // Resolve the theme class:
+  //  - new frames store the semantic class directly (e.g. "avatar-frame-blush") → use as-is
+  //  - the original 6 frames store Tailwind strings → map via frameStyleMap
+  const themeClass = frameClass
+    ? frameClass.startsWith('avatar-frame-')
+      ? frameClass
+      : frameStyleMap[frameClass] || frameClass
+    : '';
+
+  // Continuous frame animation is suppressed in dense lists (xs/sm) for
+  // performance; those sizes render the static gradient only. md+ animates.
+  const isSmallSize = size === 'xs' || size === 'sm';
+
   const framedContent = frameClass ? (
     <div
-      className={`relative inline-flex rounded-full transition-all duration-150 ${
+      className={`avatar-frame ${isSmallSize ? 'frame-static' : ''} relative inline-flex rounded-full transition-all duration-150 ${
         paddingMap[size] || 'p-[2.5px]'
-      } ${frameStyleMap[frameClass] || frameClass}`}
+      } ${themeClass}`}
     >
       {renderAvatarContent()}
     </div>

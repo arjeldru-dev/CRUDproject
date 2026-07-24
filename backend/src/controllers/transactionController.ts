@@ -11,17 +11,8 @@ import {
   validateSplits,
   validateMessage,
 } from '../services/transactionValidationService';
+import { resolveTimezone } from './savingsController';
 import crypto from 'crypto';
-
-/** Returns true if the string is a valid IANA timezone the runtime accepts. */
-function isValidTimeZone(tz: string): boolean {
-  try {
-    Intl.DateTimeFormat('en-US', { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * POST /api/transactions
@@ -818,6 +809,7 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
         weeklyStartDay: true,
         customPeriodDays: true,
         anchorDate: true,
+        iconKey: true,
       },
     });
 
@@ -825,22 +817,23 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
       return res.status(200).json({ budgetStatuses: [] });
     }
 
-    // Resolve timezone: request param → stored → UTC (never throw on bad input).
-    const reqTz = req.query.timezone as string | undefined;
-    let timezone = 'UTC';
-    if (reqTz && isValidTimeZone(reqTz)) {
-      timezone = reqTz;
-    } else {
-      const gamification = await prisma.userGamification.findUnique({
-        where: { userId },
-        select: { timezone: true },
-      });
-      if (gamification?.timezone) timezone = gamification.timezone;
-    }
+    // Resolve timezone via the shared resolver (request param → stored → UTC),
+    // the same precedence the savings endpoints use so a category's budget
+    // window and its savings figures always agree.
+    const gamification = await prisma.userGamification.findUnique({
+      where: { userId },
+      select: { timezone: true },
+    });
+    const timezone = resolveTimezone(req.query.timezone, gamification?.timezone);
 
-    const reqNow = req.query.now as string | undefined;
-    const parsedNow = reqNow ? new Date(reqNow) : new Date();
-    const now = isNaN(parsedNow.getTime()) ? new Date() : parsedNow;
+    // The `now` override is a test-only affordance; ignore it in production so a
+    // client can never request budget status for an arbitrary instant.
+    let now = new Date();
+    if (process.env.NODE_ENV !== 'production') {
+      const reqNow = req.query.now as string | undefined;
+      const parsedNow = reqNow ? new Date(reqNow) : now;
+      if (!isNaN(parsedNow.getTime())) now = parsedNow;
+    }
 
     // Compute each category's active window.
     const windows = categories.map((category) => ({
@@ -859,8 +852,14 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
     }));
 
     // Single bounded query over the union of all windows to avoid N+1.
-    const minStart = new Date(Math.min(...windows.map((w) => w.window.periodStart.getTime())));
-    const maxEnd = new Date(Math.max(...windows.map((w) => w.window.periodEnd.getTime())));
+    // reduce (not Math.min(...spread)) so a user with very many categories can
+    // never blow the call-stack argument limit. `windows` is non-empty here.
+    const minStart = new Date(
+      windows.reduce((min, w) => Math.min(min, w.window.periodStart.getTime()), Infinity),
+    );
+    const maxEnd = new Date(
+      windows.reduce((max, w) => Math.max(max, w.window.periodEnd.getTime()), -Infinity),
+    );
 
     const allDeductions = await prisma.ledgerEntry.findMany({
       where: {
@@ -876,8 +875,10 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
     });
 
     // Bucket each deduction into the category whose window contains its timestamp.
+    // Accumulate in Prisma.Decimal (not JS float) so summing many Decimal(10,2)
+    // deductions stays exact; convert to a number once per category below.
     const windowByCategory = new Map(windows.map((w) => [w.category.id, w.window]));
-    const spentByCategory: Record<string, number> = {};
+    const spentByCategory = new Map<string, Prisma.Decimal>();
     for (const entry of allDeductions) {
       const catId = entry.transaction?.categoryId;
       const createdAt = entry.transaction?.createdAt;
@@ -886,13 +887,13 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
       if (!win) continue;
       const t = createdAt.getTime();
       if (t >= win.periodStart.getTime() && t < win.periodEnd.getTime()) {
-        spentByCategory[catId] =
-          (spentByCategory[catId] || 0) + new Prisma.Decimal(entry.amountChange.toString()).toNumber();
+        const acc = spentByCategory.get(catId) ?? new Prisma.Decimal(0);
+        spentByCategory.set(catId, acc.add(entry.amountChange.toString()));
       }
     }
 
     const budgetStatuses = windows.map(({ category, window }) => {
-      const spent = spentByCategory[category.id] || 0;
+      const spent = (spentByCategory.get(category.id) ?? new Prisma.Decimal(0)).toNumber();
       const limitAmount = new Prisma.Decimal(category.limitAmount.toString()).toNumber();
       const remaining = limitAmount - spent;
 
@@ -910,6 +911,7 @@ export const getBudgetStatus = async (req: Request, res: Response) => {
       return {
         categoryId: category.id,
         categoryName: category.name,
+        iconKey: category.iconKey,
         limitAmount,
         period: category.period,
         monthlyStartDay: category.monthlyStartDay,
@@ -1034,7 +1036,9 @@ async function checkBudgetMilestones(userId: string, categoryId: string, current
       where: { userId },
       select: { timezone: true },
     });
-    const timezone = gamification?.timezone || 'UTC';
+    // Same resolver as getBudgetStatus (no request param here → stored → UTC) so
+    // milestone windows match what the user sees on the budget screen.
+    const timezone = resolveTimezone(undefined, gamification?.timezone);
 
     // Compute milestone against the category's own period window.
     const window = getPeriodWindow(

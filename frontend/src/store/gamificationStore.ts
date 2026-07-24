@@ -45,6 +45,7 @@ export interface FrameWithStatus {
   cssClass: string;
   pointsRequired: number;
   unlocked: boolean;
+  requiresSavings: boolean;
   isActive: boolean;
 }
 
@@ -72,14 +73,23 @@ export interface ChallengeParticipant {
   completedAt: string | null;
 }
 
+export type ChallengeType =
+  | 'NO_OVERSPEND_WEEK'
+  | 'NO_OVERSPEND_MONTH'
+  | 'COFFEE_FREE_WEEK'
+  | 'TRANSPORT_SAVER'
+  | 'SAVINGS_TARGET'
+  | 'CUSTOM';
+
 export interface ChallengeWithDetails {
   id: string;
-  type: 'NO_OVERSPEND_WEEK' | 'NO_OVERSPEND_MONTH' | 'COFFEE_FREE_WEEK' | 'TRANSPORT_SAVER' | 'CUSTOM';
+  type: ChallengeType;
   name: string;
   description: string;
   startDate: string;
   endDate: string;
   status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED';
+  targetAmount: number | null;
   participantCount: number;
   participants: ChallengeParticipant[];
   isCreator: boolean;
@@ -88,13 +98,14 @@ export interface ChallengeWithDetails {
 }
 
 export interface CreateChallengeDTO {
-  type: 'NO_OVERSPEND_WEEK' | 'NO_OVERSPEND_MONTH' | 'COFFEE_FREE_WEEK' | 'TRANSPORT_SAVER' | 'CUSTOM';
+  type: ChallengeType;
   name?: string;
   description?: string;
   categoryId?: string;
   startDate: string; // ISO String or date format
   endDate: string;   // ISO String or date format
   invitedUserIds: string[];
+  targetAmount?: number;
 }
 
 interface GamificationState {

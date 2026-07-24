@@ -1,7 +1,15 @@
 import { prisma } from '../config/db';
-import { Prisma, UserGamification, UserBadge, Badge, BadgeRarity } from '@prisma/client';
+import { Prisma, UserGamification, UserBadge, BadgeRarity } from '@prisma/client';
 import { feedService } from './feedService';
 import { createNotification } from './notificationService';
+import { getPeriodWindow, BudgetPeriod, PeriodOpts } from './budgetPeriodService';
+import { effectiveCurrentStreak } from './streakFreshness';
+import {
+  getUserSavingsSnapshot,
+  getAccruedSavingsInWindow,
+  getClosedBudgetPeriods,
+  UserSavingsSnapshot,
+} from './savingsSnapshotService';
 
 export interface GamificationProfileDTO {
   profile: {
@@ -43,9 +51,18 @@ export interface GamificationProfileDTO {
     cssClass: string;
     pointsRequired: number;
     unlocked: boolean;
+    requiresSavings: boolean;
     isActive: boolean;
   }>;
 }
+
+/**
+ * Frames whose theme is the savings feature. In addition to their points
+ * requirement, these only unlock while the account has savings enabled, so a
+ * savings-themed frame can never be equipped by someone who has never turned the
+ * feature on. Budget/streak-themed frames stay points-only.
+ */
+export const SAVINGS_GATED_FRAME_SLUGS = new Set<string>(['blush_piggy', 'aurora_vault']);
 
 export interface LeaderboardEntryDTO {
   userId: string;
@@ -98,34 +115,38 @@ export function getLocalDateParts(date: Date, tz?: string) {
   }
 }
 
-export function getUtcDateOfLocalTime(year: number, month: number, day: number, hour = 0, minute = 0, second = 0, tz = 'UTC') {
-  const candidate = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-  try {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-      hour: 'numeric',
-      minute: 'numeric',
-      second: 'numeric',
-      hour12: false
-    });
-    const parts = formatter.formatToParts(candidate);
-    const partMap = new Map(parts.map(p => [p.type, p.value]));
-    
-    const formattedYear = parseInt(partMap.get('year')!, 10);
-    const formattedMonth = parseInt(partMap.get('month')!, 10);
-    const formattedDay = parseInt(partMap.get('day')!, 10);
-    const formattedHour = parseInt(partMap.get('hour')!, 10);
-    const formattedMinute = parseInt(partMap.get('minute')!, 10);
-    const formattedSecond = parseInt(partMap.get('second')!, 10);
+/**
+ * Offset in milliseconds that local wall-clock time is AHEAD of UTC at `instant`
+ * for the given timezone (e.g. +13:45 → 49_500_000). Positive east of UTC.
+ */
+function tzOffsetMsAt(instant: Date, tz: string): number {
+  const p = getLocalDateParts(instant, tz);
+  const asUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second);
+  return asUtc - instant.getTime();
+}
 
-    const formattedUtc = Date.UTC(formattedYear, formattedMonth - 1, formattedDay, formattedHour, formattedMinute, formattedSecond);
-    const offset = candidate.getTime() - formattedUtc;
-    return new Date(candidate.getTime() + offset);
+export function getUtcDateOfLocalTime(year: number, month: number, day: number, hour = 0, minute = 0, second = 0, tz = 'UTC') {
+  // The desired wall-clock instant interpreted as if it were UTC.
+  const wallUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  try {
+    // First approximation: subtract the offset sampled at `wallUtc`.
+    const firstOffset = tzOffsetMsAt(new Date(wallUtc), tz);
+    let result = wallUtc - firstOffset;
+
+    // Refinement pass: the first sample can pick the offset on the WRONG side of
+    // a DST transition (the estimate and the true instant can straddle a
+    // spring-forward or fall-back boundary). Re-sample the offset at the
+    // approximate instant and correct. One pass converges for a single
+    // transition, which covers every real-world timezone rule and eliminates the
+    // ~1h drift that otherwise put local-midnight boundaries an hour off (e.g.
+    // Australia/Sydney fall-back or Pacific/Chatham spring-forward).
+    const refinedOffset = tzOffsetMsAt(new Date(result), tz);
+    if (refinedOffset !== firstOffset) {
+      result = wallUtc - refinedOffset;
+    }
+    return new Date(result);
   } catch (e) {
-    return candidate;
+    return new Date(wallUtc);
   }
 }
 
@@ -149,6 +170,25 @@ export function getLocalDateStr(date: Date, tz?: string) {
   }
 }
 
+
+/**
+ * Map a Prisma Category's period fields onto the PeriodOpts shape that
+ * `getPeriodWindow` expects. Shared by the period-aware streak and challenge
+ * evaluators.
+ */
+function categoryPeriodOpts(cat: {
+  monthlyStartDay: number | null;
+  weeklyStartDay: number | null;
+  customPeriodDays: number | null;
+  anchorDate: Date | null;
+}): PeriodOpts {
+  return {
+    monthlyStartDay: cat.monthlyStartDay,
+    weeklyStartDay: cat.weeklyStartDay,
+    customPeriodDays: cat.customPeriodDays,
+    anchorDate: cat.anchorDate,
+  };
+}
 
 export const gamificationService = {
   /**
@@ -210,7 +250,9 @@ export const gamificationService = {
 
       const awardedUserBadges: UserBadge[] = [];
 
-      // Pre-fetch all simple counts and lists in a single batch to avoid N+1 queries
+      // Pre-fetch all simple counts and lists in a single batch to avoid N+1 queries.
+      // The savings snapshot is computed ONCE here and shared across every savings
+      // requirement check below (mirrors the batched prefetch — no N+1).
       const [
         expenseCount,
         settlementCount,
@@ -218,6 +260,7 @@ export const gamificationService = {
         friendCount,
         challengeCreateCount,
         completedParticipations,
+        savingsSnapshot,
       ] = await Promise.all([
         prisma.transaction.count({ where: { creatorId: userId, type: 'EXPENSE' } }),
         prisma.transaction.count({ where: { creatorId: userId, type: 'SETTLEMENT' } }),
@@ -244,6 +287,16 @@ export const gamificationService = {
               },
             },
           },
+        }),
+        getUserSavingsSnapshot(userId).catch((err): UserSavingsSnapshot => {
+          console.error('Failed to compute savings snapshot for badges:', err);
+          return {
+            enabled: false,
+            totalAccruedSavings: 0,
+            totalSavingsBalance: 0,
+            usageCount: 0,
+            noOverspendPeriodCount: 0,
+          };
         }),
       ]);
 
@@ -319,6 +372,29 @@ export const gamificationService = {
               requirementMet = await this.checkBudgetPctUnderRequirement(userId, req.value);
               break;
             }
+            case 'savings_enabled': {
+              requirementMet = savingsSnapshot.enabled;
+              break;
+            }
+            case 'savings_accrued_total': {
+              requirementMet = savingsSnapshot.totalAccruedSavings >= req.value;
+              break;
+            }
+            case 'savings_balance': {
+              // Evaluated against the currently computed balance. Balance can drop
+              // after spending, but earned UserBadge rows are never deleted, so the
+              // badge is retained once awarded (forgiving model).
+              requirementMet = savingsSnapshot.totalSavingsBalance >= req.value;
+              break;
+            }
+            case 'savings_usage_count': {
+              requirementMet = savingsSnapshot.usageCount >= req.value;
+              break;
+            }
+            case 'period_no_overspend_count': {
+              requirementMet = savingsSnapshot.noOverspendPeriodCount >= req.value;
+              break;
+            }
           }
         } catch (err) {
           console.error(`Error parsing/evaluating requirement for badge ${badge.slug}:`, err);
@@ -382,86 +458,144 @@ export const gamificationService = {
   },
 
   /**
-   * Helper to check if any past month has budget categories under a specific percent of limit.
+   * Period-aware check: did any CLOSED budget period (per category, using that
+   * category's own configured period window) end using less than `targetPct` of
+   * the category limit?
+   *
+   * The closed-period WINDOWS come from the savings engine's authoritative
+   * enumeration (`getClosedBudgetPeriods`) so this badge respects weekly/custom
+   * periods instead of the calendar month. Spend within each window is measured
+   * from `BUDGET_DEDUCTION` ledger entries — the SAME source the streak and the
+   * budget-status page use (net of top-ups/settlements) — so the badge agrees with
+   * them rather than the savings engine's funded EXPENSE totals. It is ungated by
+   * savings enablement (a budget reward, independent of savings). Deductions across
+   * the union of all windows are fetched once (no N+1). Earned badges are never
+   * revoked.
    */
   async checkBudgetPctUnderRequirement(userId: string, targetPct: number): Promise<boolean> {
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { createdAt: true },
-    });
-    if (!user) return false;
+    try {
+      const periods = await getClosedBudgetPeriods(userId);
+      if (periods.length === 0) return false;
 
-    const gamification = await this.ensureGamificationProfile(userId);
-    const timezone = gamification.timezone || 'UTC';
+      // Single batched ledger fetch across the union of every closed window.
+      let minStart = periods[0].periodStart;
+      let maxEnd = periods[0].periodEnd;
+      for (const p of periods) {
+        if (p.periodStart < minStart) minStart = p.periodStart;
+        if (p.periodEnd > maxEnd) maxEnd = p.periodEnd;
+      }
 
-    const now = new Date();
-    const parts = getLocalDateParts(now, timezone);
-
-    // We only evaluate completed months.
-    // The most recent completed month is the month before the current local month.
-    let tempYear = parts.year;
-    let tempMonth = parts.month - 1;
-    if (tempMonth === 0) {
-      tempMonth = 12;
-      tempYear -= 1;
-    }
-
-    const minDate = new Date(user.createdAt);
-    const minParts = getLocalDateParts(minDate, timezone);
-    // Align minDate to the start of its local month
-    const minMonthStart = getUtcDateOfLocalTime(minParts.year, minParts.month, 1, 0, 0, 0, timezone);
-
-    let tempMonthStart = getUtcDateOfLocalTime(tempYear, tempMonth, 1, 0, 0, 0, timezone);
-
-    while (tempMonthStart >= minMonthStart) {
-      const monthStart = tempMonthStart;
-      const nextMonthYear = tempMonth === 12 ? tempYear + 1 : tempYear;
-      const nextMonth = tempMonth === 12 ? 1 : tempMonth + 1;
-      const monthEnd = getUtcDateOfLocalTime(nextMonthYear, nextMonth, 1, 0, 0, 0, timezone);
-
-      // Get categories for that month
-      const categories = await prisma.category.findMany({
-        where: { userId },
+      const deductions = await prisma.ledgerEntry.findMany({
+        where: {
+          userId,
+          type: 'BUDGET_DEDUCTION',
+          transaction: { createdAt: { gte: minStart, lt: maxEnd } },
+        },
+        include: { transaction: { select: { categoryId: true, createdAt: true } } },
       });
 
-      for (const cat of categories) {
-        const limit = Number(cat.limitAmount);
-        if (limit <= 0) continue;
-
-        const spentAgg = await prisma.ledgerEntry.aggregate({
-          where: {
-            userId,
-            type: 'BUDGET_DEDUCTION',
-            transaction: {
-              categoryId: cat.id,
-              createdAt: {
-                gte: monthStart,
-                lt: monthEnd,
-              },
-            },
-          },
-          _sum: { amountChange: true },
-        });
-
-        const spent = spentAgg._sum.amountChange ? Number(spentAgg._sum.amountChange) : 0;
-        const percentageUsed = (spent / limit) * 100;
-
-        // If spent less than target percent (e.g. 50%)
+      for (const period of periods) {
+        if (period.limitAmount <= 0) continue;
+        let spent = 0;
+        for (const entry of deductions) {
+          const tx = entry.transaction;
+          if (!tx || tx.categoryId !== period.categoryId || !tx.createdAt) continue;
+          const t = tx.createdAt.getTime();
+          if (t >= period.periodStart.getTime() && t < period.periodEnd.getTime()) {
+            spent += Number(entry.amountChange);
+          }
+        }
+        const percentageUsed = (spent / period.limitAmount) * 100;
         if (percentageUsed < targetPct) {
           return true;
         }
       }
+    } catch (error) {
+      console.error('Failed to check budget_pct_under requirement:', error);
+    }
+    return false;
+  },
 
-      // Decrement by one month
-      tempMonth -= 1;
-      if (tempMonth === 0) {
-        tempMonth = 12;
-        tempYear -= 1;
-      }
-      tempMonthStart = getUtcDateOfLocalTime(tempYear, tempMonth, 1, 0, 0, 0, timezone);
+  /**
+   * Return the set of a user's category ids that are currently OVER budget, each
+   * evaluated against its own current period window (`getPeriodWindow`). Shared by
+   * the period-aware streak and challenge evaluators.
+   *
+   * A category whose stored period config cannot be resolved is skipped (never
+   * counted as over). Deductions spanning the union of all category windows are
+   * fetched once, then summed per category within its own window (no N+1).
+   */
+  async getOverBudgetCategoryIds(
+    userId: string,
+    timezone: string,
+    now: Date,
+    preloadedCategories?: Array<{
+      id: string;
+      limitAmount: Prisma.Decimal;
+      period: string;
+      monthlyStartDay: number | null;
+      weeklyStartDay: number | null;
+      customPeriodDays: number | null;
+      anchorDate: Date | null;
+    }>,
+  ): Promise<Set<string>> {
+    const over = new Set<string>();
+    const categories =
+      preloadedCategories ?? (await prisma.category.findMany({ where: { userId } }));
+    if (categories.length === 0) return over;
+
+    const catWindows = categories
+      .map((cat) => {
+        try {
+          const window = getPeriodWindow(
+            cat.period as BudgetPeriod,
+            categoryPeriodOpts(cat),
+            now,
+            timezone,
+          );
+          return { cat, window };
+        } catch {
+          return null;
+        }
+      })
+      .filter(
+        (cw): cw is { cat: (typeof categories)[number]; window: ReturnType<typeof getPeriodWindow> } =>
+          cw !== null,
+      );
+
+    if (catWindows.length === 0) return over;
+
+    let minStart = catWindows[0].window.periodStart;
+    let maxEnd = catWindows[0].window.periodEnd;
+    for (const { window } of catWindows) {
+      if (window.periodStart < minStart) minStart = window.periodStart;
+      if (window.periodEnd > maxEnd) maxEnd = window.periodEnd;
     }
 
-    return false;
+    const deductions = await prisma.ledgerEntry.findMany({
+      where: {
+        userId,
+        type: 'BUDGET_DEDUCTION',
+        transaction: { createdAt: { gte: minStart, lt: maxEnd } },
+      },
+      include: { transaction: { select: { categoryId: true, createdAt: true } } },
+    });
+
+    for (const { cat, window } of catWindows) {
+      const limit = Number(cat.limitAmount);
+      let spent = 0;
+      for (const entry of deductions) {
+        const tx = entry.transaction;
+        if (!tx || tx.categoryId !== cat.id || !tx.createdAt) continue;
+        const t = tx.createdAt.getTime();
+        if (t >= window.periodStart.getTime() && t < window.periodEnd.getTime()) {
+          spent += Number(entry.amountChange);
+        }
+      }
+      if (spent > limit) over.add(cat.id);
+    }
+
+    return over;
   },
 
   /**
@@ -476,12 +610,6 @@ export const gamificationService = {
       const todayStr = getLocalDateStr(now, timezone);
       const today = new Date(todayStr + 'T00:00:00Z');
 
-      const parts = getLocalDateParts(now, timezone);
-      const monthStart = getUtcDateOfLocalTime(parts.year, parts.month, 1, 0, 0, 0, timezone);
-      const nextMonthYear = parts.month === 12 ? parts.year + 1 : parts.year;
-      const nextMonth = parts.month === 12 ? 1 : parts.month + 1;
-      const monthEnd = getUtcDateOfLocalTime(nextMonthYear, nextMonth, 1, 0, 0, 0, timezone);
-
       // Get all budget categories
       const categories = await prisma.category.findMany({
         where: { userId },
@@ -491,42 +619,11 @@ export const gamificationService = {
         return { currentStreak: gamification.currentStreak, newMilestone: false };
       }
 
-      // Check spent amount for each category
-      const deductions = await prisma.ledgerEntry.findMany({
-        where: {
-          userId,
-          type: 'BUDGET_DEDUCTION',
-          transaction: {
-            createdAt: {
-              gte: monthStart,
-              lt: monthEnd,
-            },
-          },
-        },
-        include: {
-          transaction: {
-            select: { categoryId: true },
-          },
-        },
-      });
-
-      const spentByCategory: Record<string, number> = {};
-      for (const entry of deductions) {
-        const catId = entry.transaction?.categoryId;
-        if (catId) {
-          spentByCategory[catId] = (spentByCategory[catId] || 0) + Number(entry.amountChange);
-        }
-      }
-
-      let anyOverBudget = false;
-      for (const cat of categories) {
-        const spent = spentByCategory[cat.id] || 0;
-        const limit = Number(cat.limitAmount);
-        if (spent > limit) {
-          anyOverBudget = true;
-          break;
-        }
-      }
+      // Period-aware: a category is "over" when its spend exceeds its limit within
+      // ITS OWN current period window (getPeriodWindow), not a shared calendar
+      // month. The streak breaks if ANY category is over.
+      const overBudgetCategoryIds = await this.getOverBudgetCategoryIds(userId, timezone, now, categories);
+      const anyOverBudget = overBudgetCategoryIds.size > 0;
 
       let newStreak = gamification.currentStreak;
       let updatedDate: Date | null = gamification.lastStreakDate;
@@ -623,7 +720,15 @@ export const gamificationService = {
    */
   async getGamificationProfile(userId: string): Promise<GamificationProfileDTO> {
     const profile = await this.ensureGamificationProfile(userId);
-    
+
+    // Savings-themed frames only unlock while savings is enabled (see
+    // SAVINGS_GATED_FRAME_SLUGS).
+    const savingsSettings = await prisma.savingsSettings.findUnique({
+      where: { userId },
+      select: { enabled: true },
+    });
+    const savingsEnabled = savingsSettings?.enabled ?? false;
+
     // Fetch full profile info with active frame
     const profileWithFrame = await prisma.userGamification.findUnique({
       where: { userId },
@@ -662,10 +767,11 @@ export const gamificationService = {
       return a.pointsAwarded - b.pointsAwarded;
     });
 
+    // Order chronologically by the points needed to unlock (cheapest first),
+    // tie-broken by the curated sortOrder so newly-appended frames slot into the
+    // right price position instead of always trailing the original set.
     const allFrames = await prisma.avatarFrame.findMany({
-      orderBy: {
-        sortOrder: 'asc',
-      },
+      orderBy: [{ pointsRequired: 'asc' }, { sortOrder: 'asc' }],
     });
 
     const earnedBadgeIds = new Set(userBadges.map((ub) => ub.badgeId));
@@ -673,7 +779,8 @@ export const gamificationService = {
 
     return {
       profile: {
-        currentStreak: profile.currentStreak,
+        // Expire stale snapshots: an abandoned streak must not read as active.
+        currentStreak: effectiveCurrentStreak(profile.currentStreak, profile.lastStreakDate, profile.timezone ?? undefined),
         longestStreak: profile.longestStreak,
         totalPoints: profile.totalPoints,
         lastStreakDate: profile.lastStreakDate,
@@ -706,15 +813,21 @@ export const gamificationService = {
         unlocked: earnedBadgeIds.has(b.id),
         unlockedAt: earnedBadgeUnlockedAtMap.get(b.id) || null,
       })),
-      availableFrames: allFrames.map((f) => ({
-        id: f.id,
-        slug: f.slug,
-        name: f.name,
-        cssClass: f.cssClass,
-        pointsRequired: f.pointsRequired,
-        unlocked: profile.totalPoints >= f.pointsRequired,
-        isActive: profile.activeFrameId === f.id,
-      })),
+      availableFrames: allFrames.map((f) => {
+        const requiresSavings = SAVINGS_GATED_FRAME_SLUGS.has(f.slug);
+        const meetsPoints = profile.totalPoints >= f.pointsRequired;
+        return {
+          id: f.id,
+          slug: f.slug,
+          name: f.name,
+          cssClass: f.cssClass,
+          pointsRequired: f.pointsRequired,
+          // Savings-gated frames also require savings to be enabled.
+          unlocked: requiresSavings ? savingsEnabled && meetsPoints : meetsPoints,
+          requiresSavings,
+          isActive: profile.activeFrameId === f.id,
+        };
+      }),
     };
   },
 
@@ -780,7 +893,8 @@ export const gamificationService = {
           avatarUrl: u.avatarUrl,
           activeFrame: g?.activeFrame ? { cssClass: g.activeFrame.cssClass } : null,
           totalPoints: g?.totalPoints || 0,
-          currentStreak: g?.currentStreak || 0,
+          // Expire stale snapshots: an abandoned streak must not read as active.
+          currentStreak: effectiveCurrentStreak(g?.currentStreak || 0, g?.lastStreakDate ?? null, g?.timezone ?? undefined),
           longestStreak: g?.longestStreak || 0,
           badgeCount: u._count.badges,
           isCurrentUser: u.id === userId,
@@ -815,58 +929,108 @@ export const gamificationService = {
     try {
       const now = new Date();
 
-      // Lazy evaluation: complete any active challenges that have expired
+      // ── Lazy expiry: finalize active challenges past their endDate ──
       const expiredChallenges = await prisma.challenge.findMany({
         where: {
           status: 'ACTIVE',
           endDate: { lt: now },
-          participants: {
-            some: {
-              userId,
-            },
-          },
+          participants: { some: { userId } },
         },
-        include: {
-          participants: true,
-        },
+        include: { participants: true },
       });
 
       for (const challenge of expiredChallenges) {
-        await prisma.$transaction(async (tx) => {
-          // Set challenge status to COMPLETED
-          await tx.challenge.update({
-            where: { id: challenge.id },
-            data: { status: 'COMPLETED' },
+        if (challenge.type === 'SAVINGS_TARGET') {
+          // Each accepted participant COMPLETES iff they accrued >= targetAmount of
+          // new savings within the window; otherwise they FAIL (no overspend
+          // penalty — overspend is non-destructive to savings). A SAVINGS_TARGET
+          // is created with a required positive target; if it is somehow missing
+          // (data drift) we fail closed — no participant auto-completes.
+          const target =
+            challenge.targetAmount !== null && Number(challenge.targetAmount) > 0
+              ? Number(challenge.targetAmount)
+              : null;
+          const accepted = challenge.participants.filter((p) => p.accepted);
+
+          const outcomes: Array<{ participant: (typeof accepted)[number]; won: boolean }> = [];
+          for (const part of accepted) {
+            if (part.completedAt) {
+              outcomes.push({ participant: part, won: true });
+              continue;
+            }
+            if (part.failedAt) {
+              outcomes.push({ participant: part, won: false });
+              continue;
+            }
+            if (target === null) {
+              outcomes.push({ participant: part, won: false });
+              continue;
+            }
+            const accrued = await getAccruedSavingsInWindow(
+              part.userId,
+              challenge.startDate,
+              challenge.endDate,
+              now,
+            ).catch(() => 0);
+            outcomes.push({ participant: part, won: accrued >= target });
+          }
+
+          await prisma.$transaction(async (tx) => {
+            await tx.challenge.update({ where: { id: challenge.id }, data: { status: 'COMPLETED' } });
+            for (const { participant, won } of outcomes) {
+              if (won && !participant.completedAt) {
+                await tx.challengeParticipant.update({
+                  where: { id: participant.id },
+                  data: { completedAt: challenge.endDate },
+                });
+                await createNotification({
+                  recipientId: participant.userId,
+                  type: 'CHALLENGE_COMPLETED',
+                  data: { challengeName: challenge.name, challengeId: challenge.id },
+                });
+                await feedService.generateChallengeCompletedPost(
+                  participant.userId,
+                  challenge.id,
+                  challenge.name,
+                );
+              } else if (!won && !participant.failedAt) {
+                await tx.challengeParticipant.update({
+                  where: { id: participant.id },
+                  data: { failedAt: challenge.endDate },
+                });
+              }
+            }
           });
 
-          // Process winners (failedAt is null)
-          const winners = challenge.participants.filter((p) => p.failedAt === null && p.accepted);
-
-          for (const winner of winners) {
-            await tx.challengeParticipant.update({
-              where: { id: winner.id },
-              data: { completedAt: challenge.endDate },
-            });
-
-            // Trigger reward / notification / feed post for completed challenge
-            await createNotification({
-              recipientId: winner.userId,
-              type: 'CHALLENGE_COMPLETED',
-              data: { challengeName: challenge.name, challengeId: challenge.id },
-            });
-
-            await feedService.generateChallengeCompletedPost(winner.userId, challenge.id, challenge.name);
+          for (const { participant, won } of outcomes) {
+            if (won) await this.evaluateAndAwardBadges(participant.userId).catch(console.error);
           }
-        });
+        } else {
+          await prisma.$transaction(async (tx) => {
+            await tx.challenge.update({ where: { id: challenge.id }, data: { status: 'COMPLETED' } });
+            const winners = challenge.participants.filter((p) => p.failedAt === null && p.accepted);
+            for (const winner of winners) {
+              await tx.challengeParticipant.update({
+                where: { id: winner.id },
+                data: { completedAt: challenge.endDate },
+              });
+              await createNotification({
+                recipientId: winner.userId,
+                type: 'CHALLENGE_COMPLETED',
+                data: { challengeName: challenge.name, challengeId: challenge.id },
+              });
+              await feedService.generateChallengeCompletedPost(winner.userId, challenge.id, challenge.name);
+            }
+          });
 
-        // Trigger badge checks for winners
-        const winners = challenge.participants.filter((p) => p.failedAt === null && p.accepted);
-        for (const winner of winners) {
-          await this.evaluateAndAwardBadges(winner.userId).catch(console.error);
+          const winners = challenge.participants.filter((p) => p.failedAt === null && p.accepted);
+          for (const winner of winners) {
+            await this.evaluateAndAwardBadges(winner.userId).catch(console.error);
+          }
         }
       }
 
-      // Check current active challenges for overspend
+      // ── Active participations for THIS user ──
       const activeParticipations = await prisma.challengeParticipant.findMany({
         where: {
           userId,
@@ -879,73 +1043,66 @@ export const gamificationService = {
             endDate: { gte: now },
           },
         },
-        include: {
-          challenge: true,
-        },
+        include: { challenge: true },
       });
 
       if (activeParticipations.length === 0) return;
 
       const gamification = await this.ensureGamificationProfile(userId);
       const timezone = gamification.timezone || 'UTC';
-      const parts = getLocalDateParts(now, timezone);
-      const monthStart = getUtcDateOfLocalTime(parts.year, parts.month, 1, 0, 0, 0, timezone);
-      const nextMonthYear = parts.month === 12 ? parts.year + 1 : parts.year;
-      const nextMonth = parts.month === 12 ? 1 : parts.month + 1;
-      const monthEnd = getUtcDateOfLocalTime(nextMonthYear, nextMonth, 1, 0, 0, 0, timezone);
 
-      // Get budget status for current month
-      const categories = await prisma.category.findMany({
-        where: { userId },
-      });
-
-      const deductions = await prisma.ledgerEntry.findMany({
-        where: {
-          userId,
-          type: 'BUDGET_DEDUCTION',
-          transaction: {
-            createdAt: {
-              gte: monthStart,
-              lt: monthEnd,
-            },
-          },
-        },
-        include: {
-          transaction: {
-            select: { categoryId: true },
-          },
-        },
-      });
-
-      const spentByCategory: Record<string, number> = {};
-      for (const entry of deductions) {
-        const catId = entry.transaction?.categoryId;
-        if (catId) {
-          spentByCategory[catId] = (spentByCategory[catId] || 0) + Number(entry.amountChange);
-        }
-      }
+      // Period-aware overspend: which of this user's categories are currently over
+      // budget, each against its OWN period window. Computed once for all budget-
+      // type participations. SAVINGS_TARGET participations ignore this entirely.
+      const hasBudgetTypeParticipation = activeParticipations.some(
+        (p) => p.challenge.type !== 'SAVINGS_TARGET',
+      );
+      const overBudgetCategoryIds = hasBudgetTypeParticipation
+        ? await this.getOverBudgetCategoryIds(userId, timezone, now)
+        : new Set<string>();
 
       for (const p of activeParticipations) {
         const challenge = p.challenge;
-        let hasFailed = false;
 
+        if (challenge.type === 'SAVINGS_TARGET') {
+          // Early completion the instant the target is met (better UX). Finalized
+          // participants below target are marked failed at expiry above. A missing
+          // target (data drift) can never early-complete — fail closed.
+          const target =
+            challenge.targetAmount !== null && Number(challenge.targetAmount) > 0
+              ? Number(challenge.targetAmount)
+              : null;
+          const accrued =
+            target === null
+              ? 0
+              : await getAccruedSavingsInWindow(
+                  userId,
+                  challenge.startDate,
+                  challenge.endDate,
+                  now,
+                ).catch(() => 0);
+          if (target !== null && accrued >= target) {
+            await prisma.challengeParticipant.update({
+              where: { id: p.id },
+              data: { completedAt: now },
+            });
+            await createNotification({
+              recipientId: userId,
+              type: 'CHALLENGE_COMPLETED',
+              data: { challengeName: challenge.name, challengeId: challenge.id },
+            });
+            await feedService.generateChallengeCompletedPost(userId, challenge.id, challenge.name);
+            await this.evaluateAndAwardBadges(userId).catch(console.error);
+          }
+          continue;
+        }
+
+        // Budget-type challenges: fail on overspend (period-aware).
+        let hasFailed = false;
         if (challenge.categoryId) {
-          const category = categories.find((c) => c.id === challenge.categoryId);
-          if (category) {
-            const spent = spentByCategory[category.id] || 0;
-            if (spent > Number(category.limitAmount)) {
-              hasFailed = true;
-            }
-          }
-        } else {
-          // Check all categories
-          for (const cat of categories) {
-            const spent = spentByCategory[cat.id] || 0;
-            if (spent > Number(cat.limitAmount)) {
-              hasFailed = true;
-              break;
-            }
-          }
+          if (overBudgetCategoryIds.has(challenge.categoryId)) hasFailed = true;
+        } else if (overBudgetCategoryIds.size > 0) {
+          hasFailed = true;
         }
 
         if (hasFailed) {

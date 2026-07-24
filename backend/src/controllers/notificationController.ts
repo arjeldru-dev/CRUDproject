@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
+import { getFriendlyNotificationText } from '../services/notificationService';
 
 export const getNotifications = async (req: Request, res: Response) => {
   const userId = req.user.id;
@@ -25,10 +26,15 @@ export const getNotifications = async (req: Request, res: Response) => {
     const nextCursor = notifications.length === Number(limit) ? notifications[notifications.length - 1].id : null;
 
     res.json({
-      notifications: notifications.map(n => ({
-        ...n,
-        data: n.data ? JSON.parse(n.data) : null,
-      })),
+      notifications: notifications.map(n => {
+        const data = n.data ? JSON.parse(n.data) : null;
+        const actorName = n.actor?.displayName || n.actor?.username || 'Someone';
+        // Server-filled friendly copy for enhanced types (deterministic by id so
+        // it matches the push body). Undefined for non-enhanced types or when no
+        // template pool is cached yet — the client then renders its own JSX.
+        const displayText = getFriendlyNotificationText(n.type, n.id, actorName, data) ?? undefined;
+        return { ...n, data, displayText };
+      }),
       nextCursor,
     });
   } catch (error) {

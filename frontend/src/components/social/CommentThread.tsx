@@ -227,7 +227,7 @@ const CommentThread: React.FC<CommentThreadProps> = ({ postId, anchorRef }) => {
     >
       {/* Comments List */}
       <div 
-        className="space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-lg font-sans"
+        className="comment-avatar-list space-y-4 max-h-[300px] overflow-y-auto pr-2 custom-scrollbar focus:outline-none focus:ring-2 focus:ring-primary/20 rounded-lg font-sans"
         tabIndex={0}
         aria-label="Comments list"
         role="region"

@@ -177,6 +177,22 @@ const getNotificationContent = (notification: AppNotification, parsedData: Notif
   }
 };
 
+/**
+ * Render server-filled friendly copy (Group 2) with light styling: the actor's
+ * name is bolded to preserve the existing visual emphasis. The text is plain and
+ * React-escaped, so filling can never inject markup.
+ */
+const renderFriendlyText = (displayText: string, actorName: string): React.ReactNode => {
+  if (!actorName || !displayText.includes(actorName)) return displayText;
+  const parts = displayText.split(actorName);
+  return parts.map((part, i) => (
+    <React.Fragment key={i}>
+      {part}
+      {i < parts.length - 1 && <span className="font-bold text-foreground">{actorName}</span>}
+    </React.Fragment>
+  ));
+};
+
 const getNotificationUrl = (notification: AppNotification) => {
   switch (notification.type) {
     case 'FRIEND_REQUEST_RECEIVED': return '/friends?tab=requests';
@@ -232,7 +248,10 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onAct
     }
   };
 
-  const actorName = notification.actor?.displayName || notification.actor?.username || 'User';
+  // Default matches the server's actor fallback ('Someone') so server-filled
+  // friendly copy (displayText) and the client-side bolding in renderFriendlyText
+  // resolve the same name even when the actor is missing.
+  const actorName = notification.actor?.displayName || notification.actor?.username || 'Someone';
   const styles = getNotificationStyles(notification.type);
   const IconComponent = styles.icon;
 
@@ -288,7 +307,9 @@ const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onAct
       {/* Content Text */}
       <div className="flex-1 min-w-0 pr-2">
         <p className={`font-sans text-sm md:text-base leading-snug break-words ${!notification.read ? 'text-foreground font-medium' : 'text-muted'}`}>
-          {getNotificationContent(notification, parsedData)}
+          {notification.displayText
+            ? renderFriendlyText(notification.displayText, actorName)
+            : getNotificationContent(notification, parsedData)}
         </p>
         <span className="text-[11px] md:text-xs text-muted mt-1 block">
           {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}

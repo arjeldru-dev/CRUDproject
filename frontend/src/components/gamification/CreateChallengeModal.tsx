@@ -46,6 +46,11 @@ const typeTemplates = {
     description: 'Keep transport spending under limit for 14 days.',
     durationDays: 14,
   },
+  SAVINGS_TARGET: {
+    name: 'Savings Sprint',
+    description: 'Accrue new savings to hit your target before the challenge ends.',
+    durationDays: 14,
+  },
   CUSTOM: {
     name: 'Custom Challenge',
     description: 'Create your own rules and challenge friends to join.',
@@ -74,6 +79,7 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
   const [description, setDescription] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [targetAmount, setTargetAmount] = useState('');
   const [selectedFriendIds, setSelectedFriendIds] = useState<string[]>([]);
   
   const [formError, setFormError] = useState('');
@@ -129,6 +135,7 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
     setName(type === 'CUSTOM' ? '' : template.name);
     setDescription(type === 'CUSTOM' ? '' : template.description);
     setCategoryId('');
+    setTargetAmount('');
     setSelectedFriendIds(initialFriendUserId ? [initialFriendUserId] : []);
     setFormError('');
   }, [type, initialFriendUserId]);
@@ -184,16 +191,23 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
       return 'Challenge duration cannot exceed 31 days.';
     }
 
-    if (selectedFriendIds.length === 0) {
-      return 'Please invite at least 1 friend to the challenge.';
-    }
-
+    // Solo challenges are allowed (0 invitees). Only cap the maximum.
     if (selectedFriendIds.length > 10) {
       return 'You can invite a maximum of 10 friends.';
     }
 
     if (type === 'CUSTOM' && !name.trim()) {
       return 'Please provide a name for your custom challenge.';
+    }
+
+    if (type === 'SAVINGS_TARGET') {
+      const amount = Number(targetAmount);
+      if (!targetAmount.trim() || !Number.isFinite(amount) || amount <= 0) {
+        return 'Please enter a savings target greater than 0.';
+      }
+      if (amount > 99_999_999.99) {
+        return 'Savings target is too large.';
+      }
     }
 
     return null;
@@ -223,6 +237,7 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
       startDate: startISO,
       endDate: endISO,
       invitedUserIds: selectedFriendIds,
+      targetAmount: type === 'SAVINGS_TARGET' ? Number(targetAmount) : undefined,
     });
 
     if (success) {
@@ -328,6 +343,22 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
                 </div>
               )}
 
+              {/* Savings target amount (SAVINGS_TARGET only) */}
+              {type === 'SAVINGS_TARGET' && (
+                <Input
+                  label="Savings Target (₱)"
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="0.01"
+                  placeholder="e.g. 1000"
+                  value={targetAmount}
+                  onChange={(e) => setTargetAmount(e.target.value)}
+                  id="challenge-target-amount"
+                  required
+                />
+              )}
+
               {/* Scope Category */}
               <div className="flex flex-col gap-1 sm:gap-1.5">
                 <label htmlFor="challenge-category" className="text-sm font-medium text-muted flex items-center gap-2">
@@ -396,12 +427,18 @@ export const CreateChallengeModal: React.FC<CreateChallengeModalProps> = ({
               <div className="flex flex-col gap-1 sm:gap-2">
                 <label htmlFor="invite-friend-select" className="text-sm font-medium text-muted flex items-center gap-2">
                   <Users className="w-3.5 h-3.5 text-secondary" />
-                  Invite Friends
+                  Invite Friends (optional)
                 </label>
-                
+
+                {selectedFriendIds.length === 0 && (
+                  <p className="text-[10px] text-muted-more px-1">
+                    Leave empty to challenge yourself — solo challenges are allowed.
+                  </p>
+                )}
+
                 {friends.length === 0 ? (
                   <p className="text-xs text-muted italic">
-                    You have no active friends to invite. Connect on the Friends page first.
+                    No active friends to invite yet — you can still start this challenge solo.
                   </p>
                 ) : (
                   <div className="space-y-3">

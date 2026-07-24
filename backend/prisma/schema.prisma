@@ -57,6 +57,10 @@ model User {
   // Pending Transactions
   pendingTransactions PendingTransaction[] @relation("PendingTransactionCreator")
 
+  // Savings / Piggybank relations
+  savingsSettings SavingsSettings?
+  savingsUsages   SavingsUsage[]
+
   @@index([username])
   @@map("users")
 }
@@ -133,11 +137,18 @@ model Category {
   weeklyStartDay   Int?         @map("weekly_start_day")    // 0=Sunday … 6=Saturday; required when period=WEEKLY
   customPeriodDays Int?         @map("custom_period_days")  // cycle length in days; required when period=CUSTOM
   anchorDate       DateTime?    @map("anchor_date") @db.Date // reference start date for CUSTOM cycles
+  // Server-owned, AI-derived Lucide icon key (one of the closed ICON_KEYS set).
+  // NULL for legacy rows and any classify failure → frontend falls back to the
+  // getCategoryMeta() keyword heuristic. Never accepted from the client.
+  iconKey          String?      @map("icon_key")
 
   // Relationships
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
-  challenges   Challenge[]
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions       Transaction[]
+  challenges         Challenge[]
+  fundedDaySchedule  FundedDaySchedule?
+  fundedDayOverrides FundedDayOverride[]
+  savingsUsages      SavingsUsage[]
 
   // A user cannot have two categories with the same name. Enforced atomically at
   // the DB layer (backstops the app-level, case-insensitive assertNameAvailable
@@ -147,6 +158,78 @@ model Category {
   // Mirrors the pre-existing DB index so schema and database stay in sync.
   @@index([userId], map: "categories_user_id_idx")
   @@map("categories")
+}
+
+// ── Savings / Piggybank: Funded-Day Configuration ─────────────────────
+
+model FundedDaySchedule {
+  id             String   @id @default(uuid()) @db.Uuid
+  categoryId     String   @unique @map("category_id") @db.Uuid
+  fundedWeekdays Int[]    @map("funded_weekdays") // subset of 0..6, unique, 0–7 entries
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@map("funded_day_schedules")
+}
+
+model FundedDayOverride {
+  id         String   @id @default(uuid()) @db.Uuid
+  categoryId String   @map("category_id") @db.Uuid
+  date       DateTime @map("date") @db.Date // calendar date, interpreted in owner's tz
+  funded     Boolean
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, date]) // exactly one override per category-date (Requirement 2.4)
+  @@index([categoryId])
+  @@map("funded_day_overrides")
+}
+
+// ── Savings / Piggybank: Enablement, PIN & Usage ──────────────────────
+
+model SavingsSettings {
+  id                String    @id @default(uuid()) @db.Uuid
+  userId            String    @unique @map("user_id") @db.Uuid
+  enabled           Boolean   @default(false)
+  enabledAt         DateTime? @map("enabled_at")
+  // The Savings_PIN is stored ONLY as a one-way salted bcrypt hash — never in
+  // plaintext or any reversible form (Requirement 12.1, 12.3).
+  pinHash           String?   @map("pin_hash")
+  failedPinAttempts Int       @default(0) @map("failed_pin_attempts")
+  pinLockedUntil    DateTime? @map("pin_locked_until")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("savings_settings")
+}
+
+enum SavingsUsageKind {
+  SPEND // legacy: a direct savings spend, a pure offset to accrual
+  RELEASE // moves saved money into the category's current-period budget
+}
+
+model SavingsUsage {
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @map("user_id") @db.Uuid
+  categoryId    String           @map("category_id") @db.Uuid
+  amount        Decimal          @db.Decimal(10, 2)
+  transactionId String           @unique @map("transaction_id") @db.Uuid
+  kind          SavingsUsageKind @default(SPEND)
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category    Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  transaction Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([categoryId])
+  @@map("savings_usages")
 }
 
 enum TransactionType {
@@ -167,6 +250,7 @@ model Transaction {
   creator       User          @relation("TransactionCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   category      Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   ledgerEntries LedgerEntry[]
+  savingsUsage  SavingsUsage?
 
   @@index([creatorId])
   @@index([categoryId])
@@ -385,6 +469,7 @@ enum ChallengeType {
   NO_OVERSPEND_MONTH
   COFFEE_FREE_WEEK
   TRANSPORT_SAVER
+  SAVINGS_TARGET
   CUSTOM
 }
 
@@ -465,6 +550,9 @@ model Challenge {
   startDate   DateTime        @map("start_date") @db.Date
   endDate     DateTime        @map("end_date") @db.Date
   status      ChallengeStatus @default(ACTIVE)
+  // Required for SAVINGS_TARGET challenges (the amount of new savings each
+  // participant must accrue within the window); NULL for all other types.
+  targetAmount Decimal?       @map("target_amount") @db.Decimal(10, 2)
   createdAt   DateTime        @default(now()) @map("created_at")
 
   creator      User                   @relation(fields: [creatorId], references: [id], onDelete: Cascade)

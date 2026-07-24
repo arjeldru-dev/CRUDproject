@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { Prisma } from '@prisma/client';
-import { gamificationService } from '../services/gamificationService';
+import { gamificationService, SAVINGS_GATED_FRAME_SLUGS } from '../services/gamificationService';
 import { createNotification } from '../services/notificationService';
+import { validateAmount } from '../services/transactionValidationService';
+import { ValidationError } from '../errors';
 
 // ══════════════════════════════════════════════════════════════════════
 // GET /api/gamification/profile
@@ -47,6 +49,17 @@ export const setActiveFrame = async (req: Request, res: Response) => {
 
     if (gamification.totalPoints < frame.pointsRequired) {
       return res.status(400).json({ error: 'Not enough points to unlock this frame' });
+    }
+
+    // Savings-themed frames also require savings to be enabled.
+    if (SAVINGS_GATED_FRAME_SLUGS.has(frame.slug)) {
+      const savingsSettings = await prisma.savingsSettings.findUnique({
+        where: { userId },
+        select: { enabled: true },
+      });
+      if (!savingsSettings?.enabled) {
+        return res.status(400).json({ error: 'Enable savings to unlock this frame' });
+      }
     }
 
     // Set the active frame
@@ -174,6 +187,7 @@ export const getChallenges = async (req: Request, res: Response) => {
         startDate: c.startDate,
         endDate: c.endDate,
         status: c.status,
+        targetAmount: c.targetAmount !== null ? Number(c.targetAmount) : null,
         participantCount: c.participants.length,
         participants: c.participants.map((cp) => ({
           userId: cp.user.id,
@@ -204,16 +218,34 @@ export const getChallenges = async (req: Request, res: Response) => {
 export const createChallenge = async (req: Request, res: Response) => {
   try {
     const userId: string = req.user.id;
-    const { type, name, description, categoryId, startDate, endDate, invitedUserIds } = req.body;
+    const { type, name, description, categoryId, startDate, endDate, invitedUserIds, targetAmount } = req.body;
 
     // ── Validation ────────────────────────────────────────────────
     if (!type) {
       return res.status(400).json({ error: 'Challenge type is required' });
     }
 
-    const validTypes = ['NO_OVERSPEND_WEEK', 'NO_OVERSPEND_MONTH', 'COFFEE_FREE_WEEK', 'TRANSPORT_SAVER', 'CUSTOM'];
+    const validTypes = ['NO_OVERSPEND_WEEK', 'NO_OVERSPEND_MONTH', 'COFFEE_FREE_WEEK', 'TRANSPORT_SAVER', 'SAVINGS_TARGET', 'CUSTOM'];
     if (!validTypes.includes(type)) {
       return res.status(400).json({ error: 'Invalid challenge type' });
+    }
+
+    // targetAmount is required (and only meaningful) for SAVINGS_TARGET; for every
+    // other type it is stored as null. Reuses validateAmount (positive, ≤ column
+    // max, ≤ 2 decimals) so a bad value is a clean 400 before any write.
+    let resolvedTargetAmount: number | null = null;
+    if (type === 'SAVINGS_TARGET') {
+      if (targetAmount === undefined || targetAmount === null) {
+        return res.status(400).json({ error: 'targetAmount is required for a SAVINGS_TARGET challenge' });
+      }
+      try {
+        resolvedTargetAmount = validateAmount(targetAmount, 'targetAmount');
+      } catch (err) {
+        if (err instanceof ValidationError) {
+          return res.status(400).json({ error: err.message });
+        }
+        throw err;
+      }
     }
 
     if (!startDate || !endDate) {
@@ -246,8 +278,9 @@ export const createChallenge = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Challenge duration cannot exceed 31 days' });
     }
 
-    if (!invitedUserIds || !Array.isArray(invitedUserIds) || invitedUserIds.length === 0) {
-      return res.status(400).json({ error: 'At least 1 friend must be invited' });
+    // 0-10 invitees. An empty array is a SOLO challenge (only the creator).
+    if (!Array.isArray(invitedUserIds)) {
+      return res.status(400).json({ error: 'invitedUserIds must be an array' });
     }
 
     if (invitedUserIds.length > 10) {
@@ -302,6 +335,12 @@ export const createChallenge = async (req: Request, res: Response) => {
       NO_OVERSPEND_MONTH: { name: 'No Overspend Month', description: 'Stay under budget for the entire month!' },
       COFFEE_FREE_WEEK: { name: 'Coffee-Free Week', description: 'Skip the café and save for a week!' },
       TRANSPORT_SAVER: { name: 'Transport Saver', description: 'Keep transport spending to a minimum!' },
+      SAVINGS_TARGET: {
+        name: 'Savings Sprint',
+        description: resolvedTargetAmount !== null
+          ? `Save ₱${resolvedTargetAmount.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} before the challenge ends!`
+          : 'Reach your savings target before the challenge ends!',
+      },
       CUSTOM: { name: 'Custom Challenge', description: 'A custom challenge between friends.' },
     };
 
@@ -319,6 +358,7 @@ export const createChallenge = async (req: Request, res: Response) => {
         startDate: start,
         endDate: end,
         status: 'ACTIVE',
+        targetAmount: resolvedTargetAmount,
         participants: {
           create: [
             // Creator auto-joins with accepted: true
@@ -369,6 +409,7 @@ export const createChallenge = async (req: Request, res: Response) => {
         startDate: challenge.startDate,
         endDate: challenge.endDate,
         status: challenge.status,
+        targetAmount: challenge.targetAmount !== null ? Number(challenge.targetAmount) : null,
       },
       participants: challenge.participants,
     });

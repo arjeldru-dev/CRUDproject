@@ -1,6 +1,7 @@
 import webpush from 'web-push';
 import { prisma } from '../config/db';
 import { NotificationType } from '@prisma/client';
+import { resolveFriendlyCopy, isEnhancedType, type Placeholder } from './notificationCopyService';
 
 // Configure VAPID keys
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
@@ -79,9 +80,15 @@ export const createNotification = async (params: {
   });
 
   if (subscriptions.length > 0) {
+    const pushActorName = notification.actor?.displayName || notification.actor?.username || 'Someone';
     const payload = JSON.stringify({
       title: notification.actor?.displayName || notification.actor?.username || 'BudgetBarkada',
-      body: getNotificationText(type, notification.actor?.displayName || notification.actor?.username || 'Someone', data),
+      // Prefer friendlier templated copy (deterministic by notification id so the
+      // push body matches the in-app displayText); fall back to the flat switch.
+      // Never awaits the LLM — a missing pool simply falls back for this one.
+      body:
+        getFriendlyNotificationText(type, notification.id, pushActorName, data) ||
+        getNotificationText(type, pushActorName, data),
       icon: notification.actor?.avatarUrl || '/icon-192x192.png',
       data: {
         url: getNotificationUrl(type, data),
@@ -149,6 +156,42 @@ function getNotificationText(type: NotificationType, actorName: string, data?: a
     default:
       return `${actorName} triggered a notification.`;
   }
+}
+
+/**
+ * Map a notification's actor + data onto the placeholder values the friendly
+ * copy templates fill. Only these neutral, already-present fields are used;
+ * nothing new is sent to the LLM (templates are generated from the type alone).
+ */
+function buildCopyVars(actorName: string, data?: any): Partial<Record<Placeholder, string>> {
+  // Note: no `amount` — no enhanced (allow-listed) type permits an {amount}
+  // placeholder (money/approval types keep their literal copy), so supplying it
+  // would be dead weight that any template using it is discarded for anyway.
+  return {
+    actor: actorName,
+    challengeName: data?.challengeName != null ? String(data.challengeName) : undefined,
+    badgeName: data?.badgeName != null ? String(data.badgeName) : undefined,
+    streakDays: data?.streakDays != null ? String(data.streakDays) : undefined,
+  };
+}
+
+/**
+ * Friendly, templated notification text for enhanced types, or `null` to use the
+ * flat `getNotificationText` fallback. Deterministic by `seed` (the notification
+ * id) so the push body and the in-app `displayText` always resolve to the same
+ * variant. Synchronous and PII-safe; never awaits the LLM.
+ *
+ * Exported so `notificationController.getNotifications` can attach the identical
+ * `displayText` to each enhanced notification in its response.
+ */
+export function getFriendlyNotificationText(
+  type: NotificationType,
+  seed: string,
+  actorName: string,
+  data?: any,
+): string | null {
+  if (!isEnhancedType(type)) return null;
+  return resolveFriendlyCopy(type, seed, buildCopyVars(actorName, data));
 }
 
 // Helper to generate notification deep link URL

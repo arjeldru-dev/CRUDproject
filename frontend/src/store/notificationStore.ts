@@ -26,6 +26,10 @@ export interface AppNotification {
   } | null;
   type: string;
   data: NotificationData | null;
+  /** Server-filled friendlier copy for enhanced types (Group 2). Absent for
+   *  non-enhanced types or when no template pool is cached yet — the item then
+   *  renders its own styled JSX. */
+  displayText?: string;
   read: boolean;
   createdAt: string;
 }

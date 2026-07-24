@@ -25,16 +25,23 @@
 ---
 
 > ⚠️ If this documentation doesn't match the code, the CODE is the source of
-> truth. Please update these docs. | Last verified: June 22, 2026
+> truth. Please update these docs. | Last verified: July 24, 2026
 
 ---
 
 A comprehensive, dual-entry financial ledger application that tracks personal
 budgets while securely processing cross-user split expenses and settlements. The
-application features a real-time social activity feed with emoji reactions and
-comment threading, an automated push notification system, custom QR-code sharing
-for user profiles, and a robust gamification system containing active user
-streaks, group challenges, badges, and unlockable avatar frames.
+application features flexible budget periods (daily/weekly/monthly/custom), a
+derived savings **piggybank** with a PIN-protected spend flow, a real-time social
+activity feed with emoji reactions and comment threading, an automated push
+notification system, custom QR-code sharing for user profiles, and a robust
+gamification system containing under-budget streaks, saver titles, group and solo
+challenges, savings badges, and unlockable animated avatar frames. An optional
+AI layer adds natural-language spending insights, savings nudges, a whole-budget
+summary, friendlier notification copy, and smart category-icon classification —
+while all financial math stays deterministic and authoritative (the AI only
+handles language and classification, and every surface falls back gracefully when
+AI is unavailable).
 
 ---
 
@@ -64,13 +71,28 @@ Before recording expenses, define your spending categories:
    the left pane.
 3. Type a category name (e.g., `Dining Out`, `Groceries`, `Utilities`,
    `Transportation`, `Entertainment`).
-4. Enter your **Monthly Limit** in Pesos (₱) and click **Create**.
-5. _How it works:_ The application automatically parses the category name to
+4. Enter your spending **Limit** in Pesos (₱) for the period.
+5. Choose a **Budget Period** so the category tracks on the rhythm that matches
+   how you actually spend, instead of being locked to the calendar month:
+   - **Daily** — great for allowances; resets every day.
+   - **Weekly** — pick the **start day** so the cycle matches your paycheck week.
+   - **Monthly** — pick the **"Month starts on"** reset day. Leave it on
+     `1st of month` for the classic behavior, choose any day `1`–`31`, or pick
+     `Last day of month`. Days `29`–`31` automatically fall back to the last day
+     in shorter months.
+   - **Custom** — set an **"every N days"** cycle length and a **start date** for
+     any rhythm you like.
+   Your spend, progress ring, and forecast then follow the selected period.
+6. Click **Create**.
+7. _How it works:_ The application automatically parses the category name to
    assign a curated theme color and matching icon (e.g., shopping bag for
    `Groceries`, utensils for `Dining Out`, plane/car for `Transportation`).
-6. _Managing Limits:_ You can edit limits inline at any time by clicking the
-   **Pencil icon** or delete a category entirely by clicking the **Trash icon**
-   (this will mark its transactions as uncategorized).
+   Budget windows are computed in your local timezone, so daily and weekly
+   budgets reset at your midnight — not the server's.
+8. _Managing Limits & Periods:_ You can edit a category's limit and period
+   configuration at any time by clicking the **Pencil icon**, or delete a
+   category entirely by clicking the **Trash icon** (this will mark its
+   transactions as uncategorized).
 
 ### 3. Recording Transactions & Splitting Expenses
 
@@ -103,7 +125,40 @@ fill out the details:
   confirm the transaction has been securely calculated and recorded in the
   database.
 
-### 4. Adding Friends & Moderation
+### 4. Growing & Using Savings (Piggybank)
+
+Every budget category can quietly build a savings **piggybank** from the budget
+you don't spend — no separate savings account required.
+
+- **Funded days:** On the **Budget Categories** page, each category has a
+  **funded-day** configuration. Pick which days of the week a category is
+  "funded" (or add per-date overrides). On funded days, budget you didn't spend
+  accrues into your savings for that category.
+- **Piggybank summary:** The **Categories** page shows a **Piggybank Card** with
+  your total available savings and a per-category breakdown.
+- **Savings graph:** Your **Dashboard** includes a **Savings** graph (directly
+  below the Financial Overview) that charts how your savings grow over time —
+  view the running total or switch to a per-category view.
+- **Enable savings & set a PIN:** Turn savings on from the piggybank settings.
+  To spend from savings you must set a **Savings PIN** — a separate PIN from your
+  login so that dipping into savings is always a deliberate action.
+- **Move savings to budget (release-to-budget):** When you need more room in a
+  category, you can **move saved money into that category's budget** for the
+  current period instead of logging it as an expense. Use the **Move to budget**
+  action on the Piggybank Card and confirm with your Savings PIN. The released
+  amount raises that category's available budget right away (it is recorded as a
+  budget top-up, not a spend).
+- **Unspent releases return automatically:** Releasing is non-destructive.
+  Anything you move into your budget but don't actually spend flows **back into
+  savings when the period closes** — spend only part of it and just the leftover
+  returns. During the open period your piggybank shows the released amount as
+  moved out; it snaps back if unspent.
+- **Savings stay derived & read-only:** Savings are computed from your
+  categories, transactions, funded-day config, and release history — they are
+  never withdrawn automatically and can't be edited directly (the app rejects any
+  attempt to write or withdraw a balance manually).
+
+### 5. Adding Friends & Moderation
 
 - **Adding Real Users:** Search for active users by typing their usernames in
   the search bar on the **Friends** page, and click **Send Friend Request**.
@@ -111,7 +166,7 @@ fill out the details:
 - **Blocking & Moderation:** Protect your privacy by utilizing the **Block
   User** or **Report User** triggers on a friend's profile.
 
-### 5. Joining Group Challenges & Gamification
+### 6. Joining Group Challenges & Gamification
 
 Budgeting is more fun when done together. Leverage gamification to build
 discipline:
@@ -119,22 +174,36 @@ discipline:
 - **Creating a Challenge:** On the **Challenges** page, click **Challenge
   Friends** or choose **Duel** next to a friend in your sidebar. Select a
   challenge template (e.g., `Coffee-Free Week`, `No Overspend Week`,
-  `Transport Saver`, or `Custom`), set the duration (up to 31 days), and invite
-  up to 10 friends. Invited friends will receive system and push notifications.
+  `Transport Saver`, `Savings Sprint`, or `Custom`), set the duration (up to 31
+  days), and invite up to 10 friends. Invited friends will receive system and
+  push notifications.
+- **Savings Sprint & solo challenges:** The **Savings Sprint** challenge asks
+  each participant to accrue a **target savings amount** before the window ends.
+  You can also start **any** challenge type solo — leave the friends list empty
+  to challenge only yourself.
 - **Joining a Challenge:** Navigate to the **Active Challenges** tab. Under
   **Pending Invitations**, accept the challenge invitation within 24 hours of
   the start date.
 - **How to Win:** The system monitors your transactions during the challenge
-  window. If you exceed the budget limit of the linked category, you fail the
-  challenge. Stay within budget to succeed!
-- **Earn XP & Badges:** Successful challenges and maintaining daily login
-  streaks award points (XP) and unlock badges (e.g., `Streak Milestone`,
-  `Social Butterfly`).
-- **Equip Avatar Frames:** Use your earned points to unlock premium CSS-styled
-  **Avatar Frames** in the **Badges & Frames** tab. Equip them to customize your
-  avatar border across the dashboard, feed, and friend leaderboards.
+  window. For budget challenges, staying under the linked category's limit keeps
+  you in; for a Savings Sprint, reaching your target amount completes it (going
+  over budget doesn't fail a Savings Sprint).
+- **Earn XP & Badges:** Successful challenges and maintaining under-budget
+  streaks award points (XP) and unlock badges — including the savings line
+  (`Piggybank Opened`, `Nest Egg`, `Vault Keeper`, `Smart Spender`) and the
+  budget-period milestones (`On Track`, `Budget Master`, `Discipline Incarnate`).
+- **Saver titles:** Your lifetime points earn you a **Saver title** shown next to
+  your score on the Challenges page — climbing from `Rookie Saver` through
+  `Saver`, `Steady Saver`, `Pro Saver`, `Elite Saver`, and `Master Saver`.
+- **Barkada's Streak:** The Challenges sidebar's **Barkada's Streak** panel shows
+  each friend's current under-budget streak (or "Idle") at a glance, with a quick
+  **Duel** button next to anyone.
+- **Equip Avatar Frames:** Use your earned points to unlock premium CSS-styled,
+  **animated Avatar Frames** in the **Badges & Frames** tab — including
+  `Piggybank Pride`, `Budget Master`, and `Vault Aura`. Equip them to customize
+  your avatar border across the dashboard, feed, and friend leaderboards.
 
-### 6. Social Interaction on the Activity Feed
+### 7. Social Interaction on the Activity Feed
 
 - **Feed Updates:** View a chronological updates feed showing when friends split
   expenses, complete challenges, maintain streaks, or unlock rare badges.
@@ -144,6 +213,34 @@ discipline:
 - **Privacy Filters:** The feed automatically respects user privacy levels
   (e.g., hiding exact debt details if a user's privacy visibility is set to
   `PRIVATE`).
+
+### 8. Smarter with AI (optional layer)
+
+BudgetBarkada includes an optional AI layer that makes the copy friendlier and
+more personal. It **only handles language and classification** — the underlying
+numbers, forecasts, savings math, and notification delivery are all deterministic
+and unchanged. Every AI surface degrades gracefully to the existing heuristic
+text when AI is disabled, the key is missing, or a request fails, so nothing ever
+blocks or breaks.
+
+- **AI spending insights:** On the **Dashboard**, the "Spending Forecast &
+  Insights" cards for notable categories (at risk / over budget) are rewritten
+  into a plain-English nudge that explains what your computed numbers mean. An
+  "AI" pill marks AI-sourced copy.
+- **Savings nudges:** The **Piggybank Card** (and optionally the Dashboard
+  **Savings** graph) shows a short, motivating line about your savings — a
+  milestone, positive momentum, or a gentle shortfall heads-up.
+- **One-glance budget summary:** The **Budget Insight** card on the Categories
+  page is permanent (no longer dismissable) and summarizes your **whole** budget
+  picture across all categories in a single short paragraph.
+- **Smart category icons:** New or renamed categories get a fitting icon chosen
+  automatically from the name — including Filipino terms and slang (e.g.
+  `Pamasahe` → transport) — instead of defaulting to a generic wallet.
+- **Friendlier notifications:** System notifications use warmer, more human
+  wording. Money-related notifications keep their exact, literal wording.
+- **Privacy note:** Only minimal, non-PII context (category names, statuses, and
+  already-derived percentages) is sent to the LLM provider — never peso amounts,
+  friend data, or PINs. Insights are English-only for now.
 
 ---
 
@@ -179,7 +276,7 @@ layers:
 
 ## 🗄️ Database Schema & Models Reference
 
-The relational database layer managed by Prisma consists of 19 models:
+The relational database layer managed by Prisma consists of 23 models:
 
 - **`User`:** Holds authentication credentials and public profile metadata
   (username, display name, bio, location, avatarUrl).
@@ -187,7 +284,23 @@ The relational database layer managed by Prisma consists of 19 models:
   their state (`PENDING`, `ACCEPTED`, `DECLINED`).
 - **`Friendship`:** Direct relationship records mapping linked users.
 - **`FriendProfile`:** Used for tracking ledger balances. Maps a registered user on the platform.
-- **`Category`:** Budget categories with customizable spending limits.
+- **`Category`:** Budget categories with customizable spending limits and a
+  configurable budget period (`DAILY`, `WEEKLY`, `MONTHLY`, `CUSTOM`). Also holds
+  a nullable `iconKey` — an AI-classified icon key (server-owned; falls back to
+  the keyword heuristic when null).
+- **`FundedDaySchedule`:** Per-category weekly pattern of "funded" days that
+  drive how leftover budget accrues into savings.
+- **`FundedDayOverride`:** Per-date exceptions to a category's funded-day
+  schedule (one override per category/date).
+- **`SavingsSettings`:** Per-user savings enablement flag, `enabledAt`
+  timestamp, and the one-way salted **bcrypt hash** of the Savings PIN (the PIN
+  itself is never stored in a reversible form).
+- **`SavingsUsage`:** Records of savings drawn from a category, linked to the
+  originating transaction, with a `kind` discriminator (`RELEASE` = moved into
+  the current-period budget as a top-up; legacy `SPEND` = older direct-spend
+  offset). `RELEASE` amounts feed back into that period's accrual so unspent
+  releases return to savings at period close. Savings balances are otherwise
+  **derived** (never directly persisted).
 - **`Transaction`:** Base record of ledger activity. Can be an `EXPENSE`,
   `SETTLEMENT`, or `TOP_UP`.
 - **`LedgerEntry`:** Atomic accounting lines mapping amount changes to user
@@ -214,8 +327,9 @@ The relational database layer managed by Prisma consists of 19 models:
 - **`Badge` / `UserBadge`:** Defined achievements and the list of users who
   unlocked them.
 - **`AvatarFrame`:** Collectible custom CSS borders unlocked using points.
-- **`Challenge` / `ChallengeParticipant`:** Active or historical group spending
-  challenges (e.g., transport saving, coffee-free weeks).
+- **`Challenge` / `ChallengeParticipant`:** Active or historical group **or
+  solo** spending challenges (e.g., transport saving, coffee-free weeks, and the
+  `SAVINGS_TARGET` "Savings Sprint" with a `targetAmount`).
 - **`PendingTransaction`:** Split expense requests awaiting approval or
   rejection from a peer.
 
@@ -265,9 +379,9 @@ header (`Authorization: Bearer <token>`).
 
 | Method   | Path                  | Description                                        | Access    |
 | :------- | :-------------------- | :------------------------------------------------- | :-------- |
-| `GET`    | `/api/categories`     | Lists all personal spending categories and limits. | Protected |
-| `POST`   | `/api/categories`     | Creates a new category with a monthly limit.       | Protected |
-| `PUT`    | `/api/categories/:id` | Updates a category name and monthly limit.         | Protected |
+| `GET`    | `/api/categories`     | Lists all personal spending categories, limits, and the AI-classified `iconKey`. | Protected |
+| `POST`   | `/api/categories`     | Creates a category with a limit and budget period (daily/weekly/monthly/custom); server best-effort classifies a smart `iconKey` from the name. | Protected |
+| `PUT`    | `/api/categories/:id` | Updates a category's name, limit, and period configuration; re-classifies `iconKey` only when the name changes. | Protected |
 | `DELETE` | `/api/categories/:id` | Deletes a category.                                | Protected |
 
 ### 📊 Transactions & Ledger (`/api/transactions`)
@@ -282,7 +396,41 @@ header (`Authorization: Bearer <token>`).
 | `GET`  | `/api/transactions/pending`             | Lists split requests awaiting your response.              | Protected |
 | `POST` | `/api/transactions/pending/:id/respond` | Approves or rejects a pending split transaction.          | Protected |
 
-### 📝 Social Feed (`/api/feed`)
+### � Savings & Piggybank (`/api/savings`)
+
+| Method   | Path                                          | Description                                                                        | Access    |
+| :------- | :-------------------------------------------- | :--------------------------------------------------------------------------------- | :-------- |
+| `GET`    | `/api/savings/piggybank`                      | Returns the derived piggybank total and per-category savings breakdown.            | Protected |
+| `GET`    | `/api/savings/timeseries`                     | Returns cumulative savings over time (`view=total` or `view=byCategory`).          | Protected |
+| `GET`    | `/api/savings/settings`                       | Fetches savings enablement, `enabledAt`, and whether a PIN is set.                 | Protected |
+| `PUT`    | `/api/savings/settings`                       | Enables/disables savings for the account.                                          | Protected |
+| `PUT`    | `/api/savings/settings/pin`                   | Sets or changes the Savings PIN (stored as a bcrypt hash; never returned).         | Protected |
+| `POST`   | `/api/savings/categories/:categoryId/usage`   | PIN-gated **release** of accrued savings into the category's current-period budget (writes a `TOP_UP` + negative `BUDGET_DEDUCTION`); unspent amounts auto-return to savings at period close. Body: `{ amount, pin }`. | Protected |
+| `GET`    | `/api/savings/categories/:categoryId/funded-days` | Returns the funded-day schedule/overrides for a category.                      | Protected |
+| `PUT`    | `/api/savings/categories/:categoryId/schedule`    | Sets the weekly funded-day pattern for a category.                             | Protected |
+| `PUT`    | `/api/savings/categories/:categoryId/overrides`   | Adds/updates a per-date funded-day override.                                   | Protected |
+| `DELETE` | `/api/savings/categories/:categoryId/overrides/:date` | Removes a per-date funded-day override.                                     | Protected |
+
+> Savings are **read-only/derived** in V1: any attempt to create, update, delete,
+> or withdraw a savings balance or time-series value directly is rejected with
+> `405 Method Not Allowed`. The `usage` endpoint now **releases** savings into the
+> current-period budget (a top-up) rather than logging a spend; unspent releases
+> return to savings when the period closes.
+
+### 🤖 AI Insights (`/api/insights`)
+
+These endpoints only narrate data the client already holds. They require a valid
+JWT, share a per-user rate limit (20 requests / 5 min), and always respond `200`
+when authenticated — degrading each item to `source: 'fallback'` (heuristic copy)
+on any AI issue. No peso amounts or PII are sent to the LLM provider.
+
+| Method | Path                          | Description                                                                                  | Access    |
+| :----- | :---------------------------- | :------------------------------------------------------------------------------------------- | :-------- |
+| `POST` | `/api/insights/spending`      | Batches notable budget statuses → returns AI (or fallback) per-category insight copy.        | Protected |
+| `POST` | `/api/insights/savings`       | Returns a single savings nudge (`reason` + `nudgeText`) from the computed piggybank summary. | Protected |
+| `POST` | `/api/insights/budget-summary`| Synthesizes one short paragraph summarizing all of the user's categories.                    | Protected |
+
+### �📝 Social Feed (`/api/feed`)
 
 | Method   | Path                                | Description                                                          | Access    |
 | :------- | :---------------------------------- | :------------------------------------------------------------------- | :-------- |
@@ -303,8 +451,8 @@ header (`Authorization: Bearer <token>`).
 | `GET`    | `/api/gamification/profile`             | Returns user points, streaks, badges, and active frame. | Protected |
 | `PUT`    | `/api/gamification/frame`               | Equips a purchased/unlocked CSS avatar frame.           | Protected |
 | `GET`    | `/api/gamification/leaderboard`         | Returns point-based friend rankings.                    | Protected |
-| `GET`    | `/api/gamification/challenges`          | Lists your active and historical group challenges.      | Protected |
-| `POST`   | `/api/gamification/challenges`          | Initiates a group challenge and invites friends.        | Protected |
+| `GET`    | `/api/gamification/challenges`          | Lists your active and historical challenges (incl. `targetAmount`). | Protected |
+| `POST`   | `/api/gamification/challenges`          | Starts a group **or solo** challenge (empty invitee list = solo); accepts `targetAmount` for `SAVINGS_TARGET`. | Protected |
 | `POST`   | `/api/gamification/challenges/:id/join` | Joins a group challenge (within the active window).     | Protected |
 | `DELETE` | `/api/gamification/challenges/:id`      | Cancels an active challenge (creator only).             | Protected |
 

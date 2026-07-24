@@ -62,7 +62,9 @@ export const FramePicker: React.FC = () => {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {availableFrames.map((frame) => {
-          const isUnlocked = totalPoints >= frame.pointsRequired || frame.unlocked;
+          // Trust the backend's `unlocked` (it already accounts for points AND the
+          // savings-enabled gate on savings-themed frames).
+          const isUnlocked = frame.unlocked;
           const isActive = frame.isActive || (profile?.activeFrame?.id === frame.id);
           const isProcessing = equippingId === frame.id;
 
@@ -132,7 +134,9 @@ export const FramePicker: React.FC = () => {
                 </button>
               ) : (
                 <span className="text-[10px] font-semibold text-muted bg-surface/80 border border-border-subtle px-2 py-0.5 rounded-md">
-                  Requires {frame.pointsRequired} pts
+                  {frame.requiresSavings && totalPoints >= frame.pointsRequired
+                    ? 'Enable savings to unlock'
+                    : `Requires ${frame.pointsRequired} pts`}
                 </span>
               )}
             </div>

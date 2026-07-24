@@ -1,10 +1,11 @@
 /**
  * Unit tests for budgetPeriodService.getPeriodWindow.
  *
- * The backend has no formal test runner (matching the existing `test_*.ts`
- * convention), so this file is a self-contained assertion script:
+ * Following the backend convention, this is a self-contained `node:assert`
+ * script (no jest/vitest) that exits non-zero if any assertion fails. The
+ * `scripts/run-tests.js` runner (`npm test`) discovers every test file and runs
+ * each in its own process; this file can also be run directly:
  *   npx ts-node src/services/__tests__/budgetPeriodService.test.ts
- * It exits non-zero if any assertion fails.
  */
 import assert from 'node:assert';
 import { getPeriodWindow } from '../budgetPeriodService';

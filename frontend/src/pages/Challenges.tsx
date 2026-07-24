@@ -43,6 +43,13 @@ import {
   CreditCard,
   Landmark,
   LineChart,
+  PiggyBank,
+  Wallet,
+  Vault,
+  ShieldCheck,
+  TrendingUp,
+  Target,
+  ShoppingBag,
 } from 'lucide-react';
 
 const typeIcons: Record<string, React.FC<{ className?: string }>> = {
@@ -50,6 +57,7 @@ const typeIcons: Record<string, React.FC<{ className?: string }>> = {
   NO_OVERSPEND_MONTH: Trophy,
   COFFEE_FREE_WEEK: Coffee,
   TRANSPORT_SAVER: Car,
+  SAVINGS_TARGET: PiggyBank,
   CUSTOM: Trophy,
 };
 
@@ -84,6 +92,23 @@ const badgeIconMap: Record<string, React.ComponentType<{ className?: string }>> 
   peacemaker_elite: Handshake,
   expense_veteran: LineChart,
   streak_60: Star,
+  // Savings / piggybank badges
+  savings_enabled: PiggyBank,
+  savings_first_save: Coins,
+  savings_accrued_500: PiggyBank,
+  savings_accrued_2000: TrendingUp,
+  savings_accrued_10000: Vault,
+  savings_accrued_50000: Landmark,
+  savings_balance_1000: Wallet,
+  savings_balance_10000: ShieldCheck,
+  savings_first_spend: ShoppingBag,
+  savings_spend_10: Target,
+  // Period-aware no-overspend badges
+  period_perfect_4: CheckCircle,
+  period_perfect_12: Shield,
+  period_perfect_30: Crown,
+  // SAVINGS_TARGET challenge completion badge
+  challenge_savings_target: Target,
 };
 
 const getIconColorClass = (rarity: string) => {
@@ -103,11 +128,25 @@ const getIconColorClass = (rarity: string) => {
   }
 };
 
+// Saver title ladder, derived from lifetime points. Highest matching tier wins.
+const SAVER_TITLES: { min: number; title: string }[] = [
+  { min: 2000, title: 'Master Saver' },
+  { min: 1000, title: 'Elite Saver' },
+  { min: 600, title: 'Pro Saver' },
+  { min: 300, title: 'Steady Saver' },
+  { min: 100, title: 'Saver' },
+  { min: 0, title: 'Rookie Saver' },
+];
+
+const getSaverTitle = (points: number): string =>
+  SAVER_TITLES.find((tier) => points >= tier.min)?.title ?? 'Rookie Saver';
+
 const typeLabels: Record<string, string> = {
   NO_OVERSPEND_WEEK: 'No Overspend Week',
   NO_OVERSPEND_MONTH: 'No Overspend Month',
   COFFEE_FREE_WEEK: 'Coffee-Free Week',
   TRANSPORT_SAVER: 'Transport Saver',
+  SAVINGS_TARGET: 'Savings Sprint',
   CUSTOM: 'Custom Challenge',
 };
 
@@ -200,6 +239,11 @@ export const Challenges: React.FC = () => {
   const handleTabChange = (tab: ChallengeTabKey) => {
     setActiveTab(tab);
     setSearchParams({ tab });
+  };
+
+  const openCreateChallenge = () => {
+    setSelectedDuelFriendId(null);
+    setIsCreateOpen(true);
   };
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -337,7 +381,7 @@ export const Challenges: React.FC = () => {
                 <Star className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h4 className="font-display text-sm font-bold text-foreground">Pro Saver</h4>
+                <h4 className="font-display text-sm font-bold text-foreground">{getSaverTitle(totalPoints)}</h4>
                 <p className="font-mono text-[9px] text-primary font-black uppercase tracking-widest mt-0.5">
                   Streak: {profile?.currentStreak || 0} days
                 </p>
@@ -403,7 +447,7 @@ export const Challenges: React.FC = () => {
           className="bg-surface rounded-2xl shadow-sm animate-slideUpIn" 
           style={{ padding: cardPadding, animationDelay: '220ms' }}
         >
-          <h4 className="font-display text-sm font-bold text-foreground mb-4">Active Barkadas</h4>
+          <h4 className="font-display text-sm font-bold text-foreground mb-4">Barkada's Streak</h4>
           
           {friendsLoading ? (
             <div className="space-y-4">
@@ -440,13 +484,13 @@ export const Challenges: React.FC = () => {
                           className="border border-white dark:border-background"
                         />
                         <div className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-white dark:border-background ${
-                          isStreak ? 'bg-success' : 'bg-muted'
+                          isStreak ? 'bg-streak' : 'bg-muted'
                         }`} />
                       </div>
                       <div className="min-w-0">
                         <p className="font-display text-xs font-semibold text-foreground truncate">{name}</p>
                         <p className={`font-display text-[9px] font-black uppercase tracking-wider mt-0.5 ${
-                          isStreak ? 'text-success' : 'text-muted'
+                          isStreak ? 'text-streak' : 'text-muted'
                         }`}>
                           {isStreak ? `${leaderboardFriend?.currentStreak}d Streak` : 'Idle'}
                         </p>
@@ -470,33 +514,8 @@ export const Challenges: React.FC = () => {
               })}
             </div>
           )}
-
-          <button
-            onClick={() => {
-              handleTabChange('badges');
-              if (isMobile) setIsSidebarOpen(false);
-            }}
-            className="w-full mt-4 py-2.5 text-center font-display text-xs font-bold text-primary border border-primary/20 rounded-xl hover:bg-primary/5 cursor-pointer btn-active-tactile transition-[transform,background-color,border-color] duration-160 ease-out"
-          >
-            Unlock Avatar Frames
-          </button>
         </div>
 
-        {/* Desktop-Only Challenge Friends Button */}
-        {!isMobile && (
-          <Button
-            onClick={() => {
-              setSelectedDuelFriendId(null);
-              setIsCreateOpen(true);
-            }}
-            size="md"
-            className="w-full h-11 bg-primary text-white rounded-xl font-semibold text-sm hover:bg-primary-hover btn-press transition-colors shrink-0 animate-slideUpIn"
-            style={{ animationDelay: '280ms' }}
-          >
-            <Plus className="w-4 h-4 shrink-0 mr-1.5 inline-block" />
-            <span>Challenge Friends</span>
-          </Button>
-        )}
       </div>
     );
   };
@@ -543,18 +562,6 @@ export const Challenges: React.FC = () => {
               <span>Stats</span>
             </Button>
 
-            <Button
-              onClick={() => {
-                setSelectedDuelFriendId(null);
-                setIsCreateOpen(true);
-              }}
-              size="md"
-              className="flex-1 sm:flex-none h-11 bg-primary text-white rounded-lg font-semibold text-sm hover:bg-primary-hover btn-press transition-colors shrink-0 px-4 lg:hidden"
-            >
-              <Plus className="w-5 h-5 shrink-0" />
-              <span className="hidden sm:inline">Challenge Friends</span>
-              <span className="sm:hidden">Challenge</span>
-            </Button>
           </div>
         </div>
       </header>
@@ -753,10 +760,23 @@ export const Challenges: React.FC = () => {
 
                   {/* ── Active & Ongoing Segment ── */}
                   <div className="space-y-4">
-                    <h2 className="font-display text-lg font-bold text-foreground flex items-center gap-2">
-                      <Shield className="w-5 h-5 text-secondary" />
-                      Ongoing Challenges
-                    </h2>
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="font-display text-lg font-bold text-foreground flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-secondary" />
+                        Ongoing Challenges
+                      </h2>
+                      {activeChallenges.length > 0 && (
+                        <Button
+                          onClick={openCreateChallenge}
+                          size="sm"
+                          className="shrink-0 text-xs font-bold"
+                        >
+                          <Plus className="w-4 h-4" />
+                          <span className="hidden sm:inline">Challenge Friends</span>
+                          <span className="sm:hidden">Challenge</span>
+                        </Button>
+                      )}
+                    </div>
 
                     {activeChallenges.length === 0 ? (
                       <div 
@@ -773,10 +793,7 @@ export const Challenges: React.FC = () => {
                           </p>
                         </div>
                         <Button
-                          onClick={() => {
-                            setSelectedDuelFriendId(null);
-                            setIsCreateOpen(true);
-                          }}
+                          onClick={openCreateChallenge}
                           size="sm"
                           className="mt-2 text-xs font-bold"
                         >
@@ -933,14 +950,8 @@ export const Challenges: React.FC = () => {
                     >
                       <h3 className="text-sm font-semibold text-foreground mb-2">Keep going</h3>
                       <p className="text-xs text-muted leading-relaxed">
-                        Complete 3 challenges this week to unlock the "Budget Master" limited edition avatar frame.
+                        Finish budget periods under budget and earn points to unlock the "Budget Master" avatar frame.
                       </p>
-                      <button
-                        onClick={() => handleTabChange('badges')}
-                        className="mt-3 px-4 py-2 bg-primary text-white rounded-md text-xs font-semibold hover:bg-primary-hover transition-colors cursor-pointer btn-press"
-                      >
-                        View Frames
-                      </button>
                     </div>
                   </section>
                 </div>

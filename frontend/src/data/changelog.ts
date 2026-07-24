@@ -27,6 +27,167 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '1.8.0',
+    date: '2026-07-24',
+    title: 'BudgetBarkada Gets Smarter (AI)',
+    summary:
+      'A new AI layer writes friendlier, more personal copy across the app — spending insights, savings nudges, a whole-budget summary, warmer notifications, and smarter category icons. Your numbers stay exact; the AI only handles the wording.',
+    changes: [
+      {
+        type: 'feature',
+        title: 'AI spending insights',
+        description:
+          'The Dashboard\'s Spending Forecast now explains what your numbers mean in plain English — like "You\'re on pace to go about 15% over your Dining limit; trimming a couple of eat-outs this week keeps you on track." The forecast math is unchanged; the AI just puts it in friendlier words.',
+        howToUse:
+          'Open your Dashboard. Insight cards for categories that are at risk or over budget show AI-written copy with a small "AI" tag. If AI is ever unavailable, you\'ll still see the standard tip — nothing breaks.',
+      },
+      {
+        type: 'feature',
+        title: 'Smart category icons',
+        description:
+          'New categories now get a fitting icon picked automatically from the name — including Filipino terms and slang like "Pamasahe", "Kain Out", or "Load" — instead of falling back to a generic wallet.',
+        howToUse:
+          'Just create or rename a budget category. The matching icon is chosen for you and shows on the category card and style preview.',
+      },
+      {
+        type: 'feature',
+        title: 'Savings nudges',
+        description:
+          'Your piggybank now gets a short, motivating line — celebrating milestones ("You just crossed ₱1,000 saved — your best stretch yet"), noting momentum, or gently flagging a shortfall so you can adjust next period.',
+        howToUse:
+          'Open Categories (or the Savings graph on your Dashboard). When there\'s something worth saying about your savings, a nudge appears above your totals with an "AI" tag.',
+      },
+      {
+        type: 'feature',
+        title: 'One-glance budget summary',
+        description:
+          'The Budget Insight card on the Categories page is now always on and sums up your whole budget picture in a single short paragraph across all your categories, instead of showing one line for a single category.',
+        howToUse:
+          'Open the Categories page — the Budget Insight card at the top now reads like a quick summary of how all your budgets are doing.',
+      },
+      {
+        type: 'adjustment',
+        title: 'Friendlier notifications',
+        description:
+          'System notifications now read like a person wrote them, with warmer wording for things like friend requests, streaks, badge unlocks, and challenge invites. Money-related notifications keep their exact, literal wording.',
+      },
+    ],
+  },
+  {
+    version: '1.7.0',
+    date: '2026-07-24',
+    title: 'Move Savings to Budget',
+    summary:
+      'Using saved money now tops up your category\'s budget for the current period — and anything you don\'t spend flows back into savings when the period ends.',
+    changes: [
+      {
+        type: 'adjustment',
+        title: 'Savings now move into your budget',
+        description:
+          'Covering a category from savings used to log the money as spent right away. Now, releasing savings tops up that category\'s budget for the current period, so you can spend it normally like any other budget — it\'s no longer recorded as an expense you didn\'t make.',
+        howToUse:
+          'On the Categories page, open a category\'s piggybank and choose "Move to budget." Enter an amount, confirm with your Savings PIN, and that category\'s available budget goes up for the current period.',
+      },
+      {
+        type: 'feature',
+        title: 'Unspent money returns to savings',
+        description:
+          'Releasing is now safe and non-destructive. Money you move into your budget but don\'t end up spending automatically returns to your piggybank when the budget period closes — spend only part of it and just the leftover comes back.',
+        howToUse:
+          'Move what you think you\'ll need. When the period ends, whatever you didn\'t spend is added back to your savings automatically — no action needed.',
+      },
+    ],
+  },
+  {
+    version: '1.6.0',
+    date: '2026-07-20',
+    title: 'Saver Titles & Barkada Streaks',
+    summary:
+      'Your points now earn you a Saver title, and the Challenges sidebar tracks your barkada\'s streaks at a glance.',
+    changes: [
+      {
+        type: 'feature',
+        title: 'Saver titles',
+        description:
+          'Your lifetime points now earn you a Saver title that grows as you do — Rookie Saver, Saver, Steady Saver, Pro Saver, Elite Saver, and Master Saver. Your current title shows next to your score on the Challenges page.',
+        howToUse:
+          'Keep budgeting, saving, and completing challenges to earn points. Your title updates automatically on the Challenges page — 100 points reaches Saver, and 2,000 reaches Master Saver.',
+      },
+      {
+        type: 'adjustment',
+        title: 'Barkada\'s Streak sidebar',
+        description:
+          'The "Active Barkadas" friends list in the Challenges sidebar has been reworked into "Barkada\'s Streak." Instead of just listing friends, it now shows each friend\'s current under-budget streak (or "Idle") with a streak indicator, plus a quick Duel button.',
+        howToUse:
+          'Open the Challenges page and check the "Barkada\'s Streak" panel to see how your friends are doing — tap the swords icon next to anyone to duel them.',
+      },
+    ],
+  },
+  {
+    version: '1.5.0',
+    date: '2026-07-20',
+    title: 'New Badges & Animated Frames',
+    summary: 'A fresh wave of savings and budgeting badges, plus three new animated avatar frames.',
+    changes: [
+      {
+        type: 'feature',
+        title: 'Savings & budgeting badges',
+        description:
+          'A new set of badges to chase: the savings line (Piggybank Opened, First Peso Saved, Nest Egg, Stacking Up, Vault Keeper, Fortune Builder, Cushion, Safety Net), spending from savings (Smart Spender, Savings Strategist), and finishing budget periods under budget (On Track, Budget Master, Discipline Incarnate).',
+        howToUse:
+          'Just keep budgeting and saving. New badges unlock automatically and appear with their own icons in the Badges & Frames tab.',
+      },
+      {
+        type: 'feature',
+        title: 'New animated avatar frames',
+        description:
+          'Three new points-unlocked frames join the collection — Piggybank Pride (rose blush), Budget Master (royal violet + gold), and Vault Aura (iridescent aurora). Every frame, old and new, now has a subtle signature animation with more depth and glow.',
+        howToUse:
+          'Earn points, then equip a frame from the Badges & Frames tab. Frames animate on your profile and previews, and stay static in dense lists to keep the feed smooth.',
+      },
+    ],
+  },
+  {
+    version: '1.4.0',
+    date: '2026-07-20',
+    title: 'Savings Piggybank',
+    summary: 'Grow a savings piggybank from every budget, spend it safely with a PIN, and race a savings target with your barkada.',
+    changes: [
+      {
+        type: 'feature',
+        title: 'Savings piggybank',
+        description:
+          'Every budget category can now grow savings. On the days you mark a category as "funded," budget you don\'t spend accrues into a piggybank you can see on the Categories page — a total plus a per-category breakdown.',
+        howToUse:
+          'Open Categories to see your Piggybank summary, then set which days each category is "funded" (with per-date overrides if you need them). Turn savings on from the piggybank settings to start accruing.',
+      },
+      {
+        type: 'feature',
+        title: 'Savings graph on the dashboard',
+        description:
+          'A new Savings graph on your Dashboard, right below the Financial Overview, charts how your savings build over time. Switch between the running total and a per-category view.',
+        howToUse:
+          'Open your Dashboard and scroll to the Savings section. Use the view toggle to compare your total savings against a per-category breakdown.',
+      },
+      {
+        type: 'feature',
+        title: 'Spend from savings (PIN-protected)',
+        description:
+          'When you go over on a category, you can cover it from what you\'ve saved instead. Spending savings is protected by a separate Savings PIN, so dipping in is always a deliberate choice — savings are never withdrawn automatically.',
+        howToUse:
+          'Set a Savings PIN in the piggybank settings, then use the spend-from-savings action on a category and confirm with your PIN.',
+      },
+      {
+        type: 'feature',
+        title: 'Savings Sprint challenges + solo mode',
+        description:
+          'Challenge a friend — or just yourself — to save a target amount before time runs out with the new Savings Sprint challenge. And every challenge type can now be started solo, with no friends required.',
+        howToUse:
+          'On the Challenges page, tap Challenge Friends, pick Savings Sprint, set your target amount and duration, and leave the friends list empty to go solo.',
+      },
+    ],
+  },
+  {
     version: '1.3.0',
     date: '2026-07-03',
     title: 'Reactions, Reimagined',

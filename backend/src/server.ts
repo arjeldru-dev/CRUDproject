@@ -13,6 +13,9 @@ import feedRoutes from './routes/feedRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import privacyRoutes from './routes/privacyRoutes';
 import gamificationRoutes from './routes/gamificationRoutes';
+import savingsRoutes from './routes/savingsRoutes';
+import insightRoutes from './routes/insightRoutes';
+import { warmUpNotificationCopy } from './services/notificationCopyService';
 
 dotenv.config();
 
@@ -44,12 +47,20 @@ app.use('/api/feed', feedRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/settings', privacyRoutes);
 app.use('/api/gamification', gamificationRoutes);
+app.use('/api/savings', savingsRoutes);
+app.use('/api/insights', insightRoutes);
 
 app.listen(PORT, async () => {
   try {
     await prisma.$connect();
     console.log('✅ Postgres/Prisma database connected securely.');
     console.log(`🚀 Server is running gracefully on port ${PORT}`);
+    // Pre-generate friendly notification-copy templates so the first real
+    // notification never waits on the LLM. Non-blocking + best-effort: no-op when
+    // the LLM is unconfigured, and any failure simply falls back to today's copy.
+    void warmUpNotificationCopy().catch(() => {
+      /* best-effort warm-up; lazy first-miss populate remains the fallback */
+    });
   } catch (error) {
     console.error('❌ Failed to connect to the database:', error);
     process.exit(1);

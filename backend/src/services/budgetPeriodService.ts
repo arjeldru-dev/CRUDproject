@@ -109,9 +109,17 @@ export function getPeriodWindow(
       const aYear = anchor.getUTCFullYear();
       const aMonth = anchor.getUTCMonth() + 1;
       const aDay = anchor.getUTCDate();
-      const anchorStart = getUtcDateOfLocalTime(aYear, aMonth, aDay, 0, 0, 0, tz);
 
-      const diffDays = Math.floor((now.getTime() - anchorStart.getTime()) / MS_PER_DAY);
+      // Cycle index = number of whole LOCAL calendar days between the anchor date
+      // and `now`'s local date, divided by the cycle length. Counting local
+      // calendar days (via stable UTC-midnight day numbers) rather than dividing a
+      // raw millisecond delta by 24h keeps the index correct across DST
+      // transitions, where accumulated offset drift would otherwise shift the
+      // boundary by up to an hour and make `getPeriodWindow` return a window that
+      // does not actually contain `now` near local midnight.
+      const anchorDayNumber = Date.UTC(aYear, aMonth - 1, aDay) / MS_PER_DAY;
+      const nowDayNumber = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day) / MS_PER_DAY;
+      const diffDays = nowDayNumber - anchorDayNumber;
       const k = diffDays < 0 ? 0 : Math.floor(diffDays / n); // future anchor → current window is the first one
       const s = addCalendarDays(aYear, aMonth, aDay, k * n);
       const e = addCalendarDays(s.year, s.month, s.day, n);

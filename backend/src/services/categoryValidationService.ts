@@ -84,7 +84,14 @@ export function validateLimitAmount(value: unknown): number {
   return round2(value);
 }
 
-/** Normalize a YYYY-MM-DD (or ISO) string to a pure UTC-midnight Date. */
+/**
+ * Normalize a YYYY-MM-DD (or ISO) string to a pure UTC-midnight Date.
+ *
+ * The date is taken from the value's UTC calendar parts, so a full ISO string
+ * carrying an offset (e.g. "2026-07-01T23:00:00-05:00") is interpreted by its
+ * UTC date (→ 2026-07-02), not its local one. Callers should send a date-only
+ * "YYYY-MM-DD" anchor to avoid that ambiguity; the frontend already does.
+ */
 export function parseAnchorDate(value: unknown): Date {
   if (typeof value !== 'string' && !(value instanceof Date)) {
     throw new ValidationError('anchorDate must be a valid date');

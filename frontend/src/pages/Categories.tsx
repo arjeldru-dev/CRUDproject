@@ -3,7 +3,11 @@ import api from '../lib/api';
 import Button from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { getCategoryColor } from '../components/ui/categoryColor';
+import { PiggybankCard } from '../components/ui/PiggybankCard';
+import { FundedDayConfig } from '../components/ui/FundedDayConfig';
+import { useBudgetSummary } from '../hooks/useBudgetSummary';
 import { periodName } from '../lib/budgetPeriod';
+import { lucideForIconKey, type IconKey } from '../lib/iconKeys';
 import {
   Wallet,
   Plus,
@@ -36,11 +40,18 @@ interface CategoryBudget {
   customPeriodDays: number | null;
   anchorDate: string | null;
   periodLabel?: string;
+  periodEnd?: string;
   spent: number;
   remaining: number;
   status?: string;
+  /** Forecast fields (spread from the budget endpoint) used by the AI summary. */
+  pctUsed?: number;
+  projectedPct?: number;
+  lowConfidence?: boolean;
   insightText?: string;
   alertText?: string;
+  /** Server-owned AI icon key; null for legacy rows / classify failure. */
+  iconKey?: IconKey | null;
 }
 
 /** Local form state for the period configuration (shared by create + edit). */
@@ -209,11 +220,22 @@ const currencyFormatter = new Intl.NumberFormat('en-PH', {
 
 const fmt = (n: number) => currencyFormatter.format(n);
 
-/** Helper mapping category names to Lucide icons and Stitch/index.css style variables */
-const getCategoryMeta = (categoryName: string) => {
+/**
+ * Helper mapping a category to its Lucide icon + Stitch/index.css style vars.
+ *
+ * Prefers the server-assigned AI `iconKey` when present; otherwise falls back to
+ * the keyword heuristic below (also used for the live create-form preview, which
+ * has no iconKey until the row is saved). Color mapping is always heuristic.
+ */
+const getCategoryMeta = (categoryName: string, iconKey?: IconKey | null) => {
   const name = categoryName.toLowerCase();
   const color = getCategoryColor(categoryName);
-  
+
+  const aiIcon = lucideForIconKey(iconKey);
+  if (aiIcon) {
+    return { icon: aiIcon, colorVar: color, badgeClass: '' };
+  }
+
   let icon = Wallet;
   if (name.includes('grocer') || name.includes('shop') || name.includes('market')) {
     icon = ShoppingBag;
@@ -301,6 +323,46 @@ const ProgressRing = React.memo<ProgressRingProps>(({ percent, color, isOver }) 
 
 ProgressRing.displayName = 'ProgressRing';
 
+/**
+ * Deterministic, LLM-free budget summary paragraph (Group 3). Rendered
+ * immediately so the Budget Insight card never waits on the AI, and kept as the
+ * permanent fallback whenever the AI is off/slow/failed. Mirrors the backend's
+ * `buildDeterministicSummary` shape from status counts only.
+ */
+function buildLocalBudgetSummary(categories: CategoryBudget[]): string {
+  const total = categories.length;
+  if (total === 0) return '';
+
+  const over = categories.filter((c) => c.status === 'OVER_BUDGET').length;
+  const atRisk = categories.filter(
+    (c) => c.status === 'AT_RISK' || (c.status === 'ON_TRACK' && c.lowConfidence),
+  ).length;
+  const surplus = categories.filter((c) => c.status === 'SURPLUS').length;
+  const onTrack = total - over - atRisk - surplus;
+
+  const clauses: string[] = [];
+  if (over > 0) clauses.push(`${over} over the limit`);
+  if (atRisk > 0) clauses.push(`${atRisk} trending high`);
+  if (surplus > 0) clauses.push(`${surplus} with a surplus`);
+  if (onTrack > 0) clauses.push(`${onTrack} on track`);
+
+  const budgetsWord = total === 1 ? 'budget' : 'budgets';
+  const parts: string[] = [`You have ${total} ${budgetsWord}.`];
+  if (clauses.length > 0) {
+    const list =
+      clauses.length === 1
+        ? clauses[0]
+        : `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]}`;
+    parts.push(`${list.charAt(0).toUpperCase()}${list.slice(1)}.`);
+  }
+  parts.push(
+    over > 0 || atRisk > 0
+      ? 'Easing off the ones running high this period keeps you steady.'
+      : 'Nice work keeping everything in check — keep it up.',
+  );
+  return parts.join(' ');
+}
+
 const Categories: React.FC = () => {
   const [categories, setCategories] = useState<CategoryBudget[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -316,17 +378,17 @@ const Categories: React.FC = () => {
 
   // ── Inline Edit State ───────────────────────────────────────────────
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
   const [editLimit, setEditLimit] = useState('');
   const [editPeriod, setEditPeriod] = useState<PeriodFormState>(DEFAULT_PERIOD_FORM);
   const [isSaving, setIsSaving] = useState(false);
   const [editErrorId, setEditErrorId] = useState<string | null>(null);
   const [editError, setEditError] = useState('');
+  const [editErrorField, setEditErrorField] = useState<'name' | 'limit' | null>(null);
 
   // ── Search State ────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
 
-  // ── Insight Display ─────────────────────────────────────────────────
-  const [showInsight, setShowInsight] = useState(true);
 
   // ── Deletion State ──────────────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -404,9 +466,24 @@ const Categories: React.FC = () => {
 
   // ── Update Limit + Period ───────────────────────────────────────────
   const handleSaveCategory = async (categoryId: string) => {
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      setEditErrorId(categoryId);
+      setEditErrorField('name');
+      setEditError('Category name is required.');
+      return;
+    }
+    if (trimmedName.length > 30) {
+      setEditErrorId(categoryId);
+      setEditErrorField('name');
+      setEditError('Category name cannot exceed 30 characters.');
+      return;
+    }
+
     const newLimit = parseFloat(editLimit);
     if (!Number.isFinite(newLimit) || newLimit < 0 || newLimit > MAX_LIMIT) {
       setEditErrorId(categoryId);
+      setEditErrorField('limit');
       setEditError('Limit must be between ₱0 and ₱99,999,999.');
       return;
     }
@@ -414,15 +491,23 @@ const Categories: React.FC = () => {
     const { payload: periodPayload, error: periodError } = buildPeriodPayload(editPeriod);
     if (periodError) {
       setEditErrorId(categoryId);
+      setEditErrorField(null);
       setEditError(periodError);
       return;
     }
 
+    // Only send `name` when it actually changed — a no-op rename would otherwise
+    // trigger a needless icon re-classification on the backend.
+    const current = categories.find((c) => c.categoryId === categoryId);
+    const nameChanged = !!current && trimmedName !== current.categoryName;
+
     setIsSaving(true);
     setEditErrorId(null);
+    setEditErrorField(null);
     setEditError('');
     try {
       await api.patch(`/categories/${categoryId}`, {
+        ...(nameChanged ? { name: trimmedName } : {}),
         limitAmount: newLimit,
         ...periodPayload,
       });
@@ -431,6 +516,9 @@ const Categories: React.FC = () => {
     } catch (err) {
       const apiError = err as { response?: { data?: { error?: string } } };
       setEditErrorId(categoryId);
+      // A duplicate-name conflict (409) is a name problem; otherwise leave the
+      // ring unattributed and just surface the message.
+      setEditErrorField(apiError.response?.data?.error?.toLowerCase().includes('name') ? 'name' : null);
       setEditError(apiError.response?.data?.error || 'Failed to save changes. Please try again.');
     } finally {
       setIsSaving(false);
@@ -456,6 +544,7 @@ const Categories: React.FC = () => {
 
   const startEditing = (cat: CategoryBudget) => {
     setEditingId(cat.categoryId);
+    setEditName(cat.categoryName);
     setEditLimit(cat.limitAmount.toString());
     setEditPeriod({
       period: cat.period,
@@ -465,13 +554,16 @@ const Categories: React.FC = () => {
       anchorDate: cat.anchorDate ? cat.anchorDate.slice(0, 10) : '',
     });
     setEditErrorId(null);
+    setEditErrorField(null);
     setEditError('');
   };
 
   const cancelEditing = () => {
     setEditingId(null);
+    setEditName('');
     setEditLimit('');
     setEditErrorId(null);
+    setEditErrorField(null);
     setEditError('');
   };
 
@@ -482,8 +574,26 @@ const Categories: React.FC = () => {
     );
   }, [categories, search]);
 
-  // Find first category containing insightText for top display card
-  const insightCategory = categories.find((c) => c.insightText);
+  // ── Permanent Budget Insight summary (Group 3) ──────────────────────
+  // One synthesized paragraph covering ALL categories. A deterministic local
+  // summary renders immediately; the AI paragraph swaps in when it resolves.
+  const summaryRows = useMemo(
+    () =>
+      categories.map((c) => ({
+        categoryName: c.categoryName,
+        status: c.status,
+        lowConfidence: c.lowConfidence,
+        pctUsed: c.pctUsed,
+        projectedPct: c.projectedPct,
+        periodLabel: c.periodLabel,
+        periodEnd: c.periodEnd,
+      })),
+    [categories],
+  );
+  const budgetSummary = useBudgetSummary(summaryRows);
+  const localSummary = useMemo(() => buildLocalBudgetSummary(categories), [categories]);
+  const summaryIsAi = budgetSummary.source === 'ai' && Boolean(budgetSummary.summaryText);
+  const summaryParagraph = summaryIsAi ? budgetSummary.summaryText : localSummary;
 
   // Style metadata for creation form preview
   const previewMeta = getCategoryMeta(formName || 'Category');
@@ -655,30 +765,32 @@ const Categories: React.FC = () => {
 
         {/* Right Side: Category List & Search */}
         <section className="lg:col-span-8 w-full">
-          {/* Integrated Insight Banner */}
-          {showInsight && insightCategory && (
+          {/* Permanent Budget Insight card (Group 3) — one synthesized paragraph
+              summarizing ALL categories. Non-closeable; renders whenever the user
+              has ≥ 1 category. Kept ABOVE the Piggybank_Card in document order
+              (savings-piggybank Req 11.11). */}
+          {categories.length > 0 && summaryParagraph && (
             <div className="bg-surface rounded-2xl shadow-sm relative animate-slideDownIn" style={{ padding: '24px', marginBottom: 'var(--space-3)' }}>
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 animate-breathe">
                   <Lightbulb className="w-4.5 h-4.5" />
                 </div>
-                <div className="flex-grow pr-4">
+                <div className="flex-grow">
                   <h4 className="font-display font-semibold text-sm text-primary">Budget Insight</h4>
-                  <p className="font-sans text-xs text-muted mt-1 leading-relaxed">
-                    {insightCategory.insightText}
+                  <p className="font-sans text-xs text-muted mt-1 leading-relaxed" aria-live="polite">
+                    {summaryParagraph}
                   </p>
                 </div>
-                <button
-                  onClick={() => setShowInsight(false)}
-                  className="text-muted hover:text-error transition-colors shrink-0 btn-active-tactile cursor-pointer p-0.5 rounded-lg"
-                  aria-label="Close insight panel"
-                >
-                  <X className="w-4 h-4" />
-                </button>
               </div>
             </div>
           )}
-          
+
+          {/* Savings Piggybank summary — rendered below the Budget Insight card
+              (savings-piggybank Req 5.5, 11.7-11.12, 12.x) */}
+          <div style={{ marginBottom: 'var(--space-3)' }}>
+            <PiggybankCard />
+          </div>
+
           {/* Search Input */}
           {categories.length > 0 && (
             <div className="relative" style={{ marginBottom: 'var(--space-3)' }}>
@@ -737,7 +849,7 @@ const Categories: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-5">
               {filtered.map((cat, index) => {
                 const isEditing = editingId === cat.categoryId;
-                const meta = getCategoryMeta(cat.categoryName);
+                const meta = getCategoryMeta(cat.categoryName, cat.iconKey);
                 const Icon = meta.icon;
                 const percent = cat.limitAmount > 0 ? (cat.spent / cat.limitAmount) * 100 : 0;
                 const isOver = cat.spent > cat.limitAmount;
@@ -778,9 +890,30 @@ const Categories: React.FC = () => {
                         )}
                       </div>
                       
-                      {/* Inline edit (limit row + stacked period controls) */}
+                      {/* Inline edit (name row + limit row + stacked period controls) */}
                       {isEditing && (
                         <div className="flex flex-col gap-3 w-full animate-fadeInFast mt-2">
+                          <div className="flex flex-col gap-1 w-full">
+                            <label htmlFor={`edit-name-${cat.categoryId}`} className="text-[10px] uppercase font-bold tracking-wider text-muted">
+                              Category name
+                            </label>
+                            <input
+                              type="text"
+                              value={editName}
+                              onChange={(e) => setEditName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveCategory(cat.categoryId);
+                                if (e.key === 'Escape') cancelEditing();
+                              }}
+                              maxLength={30}
+                              autoFocus
+                              id={`edit-name-${cat.categoryId}`}
+                              placeholder="Category name"
+                              className={`w-full px-2.5 py-1 bg-background border rounded-lg text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm h-9 transition-colors ${
+                                hasEditError && editErrorField === 'name' ? 'border-error ring-2 ring-error/25' : 'border-border'
+                              }`}
+                            />
+                          </div>
                           <div className="flex items-center gap-1.5 w-full">
                             <label htmlFor={`edit-limit-${cat.categoryId}`} className="sr-only">
                               Edit limit for {cat.categoryName}
@@ -795,10 +928,9 @@ const Categories: React.FC = () => {
                               }}
                               min={0}
                               max={MAX_LIMIT}
-                              autoFocus
                               id={`edit-limit-${cat.categoryId}`}
                               className={`w-28 px-2.5 py-1 bg-background border rounded-lg text-foreground font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary text-sm h-9 transition-colors ${
-                                hasEditError ? 'border-error ring-2 ring-error/25' : 'border-border'
+                                hasEditError && editErrorField === 'limit' ? 'border-error ring-2 ring-error/25' : 'border-border'
                               }`}
                             />
                             <button
@@ -831,6 +963,14 @@ const Categories: React.FC = () => {
                               <span>{editError}</span>
                             </div>
                           )}
+
+                          {/* Funded-day configuration (savings-piggybank Req 1.3, 2.2, 2.5, 2.6) */}
+                          <div className="border-t border-border pt-3 mt-1">
+                            <FundedDayConfig
+                              categoryId={cat.categoryId}
+                              categoryName={cat.categoryName}
+                            />
+                          </div>
                         </div>
                       )}
 

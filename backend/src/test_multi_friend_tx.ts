@@ -157,7 +157,7 @@ async function runTests() {
       throw new Error(`Transaction created prematurely: ${JSON.stringify(dbTransactions)}`);
     }
 
-    let dbLedgers = await prisma.ledgerEntry.findMany({ where: { userId: creator.id } });
+    const dbLedgers = await prisma.ledgerEntry.findMany({ where: { userId: creator.id } });
     if (dbLedgers.length !== 0) {
       throw new Error(`Ledger entries created prematurely: ${JSON.stringify(dbLedgers)}`);
     }

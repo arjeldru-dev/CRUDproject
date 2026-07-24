@@ -11,6 +11,8 @@ import {
   validateLimitAmount,
   validateName,
 } from '../services/categoryValidationService';
+import { classifyIcon } from '../services/aiIconService';
+import { feedService } from '../services/feedService';
 
 /**
  * Reject a name that collides (case-insensitively) with another of the user's
@@ -64,11 +66,18 @@ export const createCategory = async (req: Request, res: Response) => {
       return res.status(409).json({ error: `A category named "${normalizedName}" already exists.` });
     }
 
+    // Best-effort AI icon classification (server-owned; never read from the
+    // client). A failure/timeout returns null → the row is still created and the
+    // frontend falls back to its keyword heuristic. Runs only after the name is
+    // known-available so classify never precedes a validation/uniqueness reject.
+    const iconKey = await classifyIcon(normalizedName);
+
     const category = await prisma.category.create({
       data: {
         name: normalizedName,
         limitAmount: normalizedLimit,
         userId: req.user.id,
+        iconKey,
         ...config,
       },
     });
@@ -142,6 +151,14 @@ export const updateCategory = async (req: Request, res: Response) => {
     if (normalizedName !== undefined) updateData.name = normalizedName;
     if (normalizedLimit !== undefined) updateData.limitAmount = normalizedLimit;
 
+    // Re-classify the icon ONLY when the name actually changes. Limit-only or
+    // period-only edits leave iconKey untouched (no LLM call). Best-effort:
+    // a null result is written so a name that no longer matches its old icon
+    // reverts to the heuristic rather than keeping a stale AI icon.
+    if (normalizedName !== undefined) {
+      updateData.iconKey = await classifyIcon(normalizedName);
+    }
+
     if (touchesPeriod) {
       const effectivePeriod: BudgetPeriod = (req.body.period ?? existingCategory.period) as BudgetPeriod;
       if (!isBudgetPeriod(effectivePeriod)) {
@@ -157,9 +174,21 @@ export const updateCategory = async (req: Request, res: Response) => {
       Object.assign(updateData, normalizePeriodConfig(effectivePeriod, merged));
     }
 
-    const updatedCategory = await prisma.category.update({
-      where: { id },
-      data: updateData,
+    // When the name actually changes, propagate it into the frozen name
+    // snapshots on existing feed posts so the rename shows everywhere — not just
+    // on surfaces that resolve the name live by categoryId. Done atomically with
+    // the category update so a failure can't leave a half-renamed state.
+    const oldName = existingCategory.name;
+
+    const updatedCategory = await prisma.$transaction(async (tx) => {
+      const category = await tx.category.update({
+        where: { id },
+        data: updateData,
+      });
+      if (normalizedName !== undefined && normalizedName !== oldName) {
+        await feedService.renameCategoryInPosts(tx, req.user.id, oldName, normalizedName);
+      }
+      return category;
     });
 
     return res.status(200).json({ category: updatedCategory });
