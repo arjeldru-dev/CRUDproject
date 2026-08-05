@@ -108,7 +108,8 @@ export interface CategorySavings {
 
 export interface TimeSeriesPoint {
   periodEnd: string; // ISO instant
-  cumulativeBalance: number; // running Total_Savings_Balance as of periodEnd, 2dp
+  cumulativeBalance: number; // running Total_Accrued_Savings as of periodEnd, 2dp
+  currentBalance?: number; // NEW — running (accrued − applied usage) as of periodEnd, 2dp
 }
 
 /**
@@ -620,7 +621,11 @@ function accumulatePoints(periods: PeriodResult[]): TimeSeriesPoint[] {
  * clamped into `[0.00, 999,999,999.99]` (Requirement 6.1) and is non-decreasing
  * because every `periodSavings >= 0` (Requirement 6.6).
  */
-function accumulateTotalPoints(periods: PeriodResult[]): TimeSeriesPoint[] {
+function accumulateTotalPoints(
+  periods: PeriodResult[],
+  allUsagesByCategory?: Map<string, SavingsUsageInput[]>,
+  now?: Date,
+): TimeSeriesPoint[] {
   // Group periods by their `periodEnd` instant so tied periods from different
   // categories can be given a single, order-independent through-instant total.
   const byEnd = new Map<number, PeriodResult[]>();
@@ -633,10 +638,27 @@ function accumulateTotalPoints(periods: PeriodResult[]): TimeSeriesPoint[] {
 
   const endMsAsc = [...byEnd.keys()].sort((a, b) => a - b);
 
+  // Flatten and sort all usages by createdAt ascending if usage data was provided.
+  const allUsages: SavingsUsageInput[] = [];
+  if (allUsagesByCategory !== undefined) {
+    for (const usageList of allUsagesByCategory.values()) {
+      for (const u of usageList) {
+        allUsages.push(u);
+      }
+    }
+    allUsages.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
   const points: TimeSeriesPoint[] = [];
   let running = 0;
-  for (const endMs of endMsAsc) {
+  const totalInstants = endMsAsc.length;
+  const nowMs = now ? now.getTime() : Date.now();
+
+  for (let i = 0; i < totalInstants; i++) {
+    const endMs = endMsAsc[i];
+    const isLastInstant = i === totalInstants - 1;
     const bucket = byEnd.get(endMs) as PeriodResult[];
+
     // Advance the cumulative by the full sum of this instant's periods, re-rounding
     // each addition to 2dp so the result is independent of the (ambiguous) order of
     // tied periods.
@@ -645,11 +667,34 @@ function accumulateTotalPoints(periods: PeriodResult[]): TimeSeriesPoint[] {
     }
     if (running < 0) running = 0;
     if (running > MAX_CUMULATIVE_BALANCE) running = MAX_CUMULATIVE_BALANCE;
+
+    let currentBalance: number | undefined;
+    if (allUsagesByCategory !== undefined) {
+      // For historical points, cutoff is endMs.
+      // For the last point in the time series, cutoff includes usages up to now
+      // so recent usages created during the current open period are reflected on the latest point.
+      const cutoffMs = isLastInstant ? Math.max(endMs, nowMs) : endMs;
+
+      let usageSum = 0;
+      for (const u of allUsages) {
+        if (u.createdAt.getTime() <= cutoffMs) {
+          usageSum += u.amount;
+        }
+      }
+      const roundedUsage = round2(usageSum);
+      currentBalance = round2(Math.max(0, Math.min(running, running - roundedUsage)));
+      if (currentBalance > MAX_CUMULATIVE_BALANCE) currentBalance = MAX_CUMULATIVE_BALANCE;
+    }
+
     // Emit one data point per contributing period (Requirement 6.1); every point at
     // this instant carries the same full through-instant cumulative.
     const iso = new Date(endMs).toISOString();
     for (let k = 0; k < bucket.length; k++) {
-      points.push({ periodEnd: iso, cumulativeBalance: running });
+      const pt: TimeSeriesPoint = { periodEnd: iso, cumulativeBalance: running };
+      if (currentBalance !== undefined) {
+        pt.currentBalance = currentBalance;
+      }
+      points.push(pt);
     }
   }
   return points;
@@ -721,6 +766,7 @@ export function buildTimeSeries(
   // series plots per-period savings (which include `releasedIntoPeriod`), never
   // the offset, so it stays non-decreasing (Requirement 6.6).
   usagesByCategory?: Map<string, SavingsUsageInput[]>,
+  allUsagesByCategory?: Map<string, SavingsUsageInput[]>,
 ): { view: 'total'; points: TimeSeriesPoint[] } | { view: 'byCategory'; series: CategorySeries[] } {
   const view = opts?.view ?? 'total';
 
@@ -800,7 +846,7 @@ export function buildTimeSeries(
   // Collapse periods sharing an identical `periodEnd` (possible when different
   // categories close on the same instant) into one cumulative point so the total
   // series is order-independent (Requirement 7.3, Property 19).
-  const points = windowPoints(accumulateTotalPoints(allPeriods), rangeStart, rangeEnd, limit);
+  const points = windowPoints(accumulateTotalPoints(allPeriods, allUsagesByCategory), rangeStart, rangeEnd, limit);
   return { view: 'total', points };
 }
 

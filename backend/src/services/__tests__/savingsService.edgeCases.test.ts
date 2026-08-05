@@ -181,6 +181,50 @@ test('buildTimeSeries with no categories returns an empty series', () => {
   assert.deepStrictEqual(points, [], 'no categories → no time-series points');
 });
 
+test('buildTimeSeries includes usages in open period (after last closed period) in currentBalance for latest point', () => {
+  const category: CategoryInput = {
+    id: 'cat-1',
+    name: 'Food',
+    limitAmount: 500,
+    period: 'MONTHLY' as BudgetPeriod,
+    monthlyStartDay: 1,
+    weeklyStartDay: null,
+    customPeriodDays: null,
+    anchorDate: null,
+    schedule: [0, 1, 2, 3, 4, 5, 6],
+    overrides: new Map(),
+  };
+
+  // Expense in previous closed period (e.g., June 2026)
+  const expenses = new Map<string, ExpenseInput[]>([
+    ['cat-1', [{ categoryId: 'cat-1', amount: 0, createdAt: new Date('2026-06-15T00:00:00Z') }]],
+  ]);
+
+  // Usage created after closed period ended (e.g. Aug 3, 2026 when now is Aug 5, 2026)
+  const usages = new Map([
+    ['cat-1', [{ categoryId: 'cat-1', amount: 500, createdAt: new Date('2026-08-03T00:00:00Z') }]],
+  ]);
+
+  const testNow = new Date('2026-08-05T00:00:00Z');
+  const result = buildTimeSeries(
+    [category],
+    expenses,
+    { enabled: true, enabledAt: null },
+    testNow,
+    TZ,
+    { view: 'total' },
+    usages,
+    usages,
+  );
+
+  assert.strictEqual(result.view, 'total');
+  const points = result.points;
+  assert.ok(points.length > 0, 'should have at least one point');
+  const latest = points[points.length - 1];
+  assert.strictEqual(latest.cumulativeBalance, 1000, `cumulativeBalance should be 1000, got ${latest.cumulativeBalance}`);
+  assert.strictEqual(latest.currentBalance, 500, `currentBalance should be 500 (1000 - 500 usage), got ${latest.currentBalance}`);
+});
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${passed} passed, ${failures.length} failed`);
 if (failures.length) {

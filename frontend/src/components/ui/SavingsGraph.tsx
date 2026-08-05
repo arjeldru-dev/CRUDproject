@@ -52,6 +52,8 @@ interface TimeSeriesPoint {
   periodEnd: string;
   /** Running cumulative accrued savings as of `periodEnd`, rounded to 2dp. */
   cumulativeBalance: number;
+  /** Running available savings balance (accrued - applied usages) as of `periodEnd`, 2dp. */
+  currentBalance?: number;
 }
 
 /** One category's cumulative accrued series (view=byCategory). */
@@ -478,20 +480,46 @@ const SavingsGraphComponent: React.FC = () => {
 
   // Populated (Requirements 6.3, 11.8).
   const latest = points[points.length - 1];
+  const hasBalanceData = points.some((p) => p.currentBalance !== undefined);
+  const usedAmount =
+    latest.currentBalance !== undefined && latest.currentBalance < latest.cumulativeBalance
+      ? Math.round((latest.cumulativeBalance - latest.currentBalance + Number.EPSILON) * 100) / 100
+      : 0;
+
   return (
     <div className={cardClass} style={{ padding: '24px' }}>
       <CardHeader>{controls}</CardHeader>
-      <div className="flex flex-col gap-1 mb-4">
-        <span className="text-[10px] text-muted font-bold font-display uppercase tracking-wider">
-          Total Accumulated
-        </span>
-        <span className="font-mono font-bold text-2xl text-foreground" data-testid="savings-latest">
-          {formatPeso(latest.cumulativeBalance)}
-        </span>
+      <div className="flex items-baseline justify-between gap-4 mb-4 flex-wrap">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] text-muted font-bold font-display uppercase tracking-wider">
+            Total Saved
+          </span>
+          <span className="font-mono font-bold text-2xl text-foreground" data-testid="savings-latest">
+            {formatPeso(latest.cumulativeBalance)}
+          </span>
+        </div>
+        {latest.currentBalance !== undefined && (
+          <div className="flex flex-col gap-1 items-end">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold font-display uppercase tracking-wider">
+                Current Balance
+              </span>
+              {usedAmount > 0 && (
+                <span className="text-xs text-muted font-sans font-medium" data-testid="savings-used-delta">
+                  ↓ {formatPeso(usedAmount)} used
+                </span>
+              )}
+            </div>
+            <span className="font-mono font-bold text-2xl text-emerald-600 dark:text-emerald-400" data-testid="savings-current-balance">
+              {formatPeso(latest.currentBalance)}
+            </span>
+          </div>
+        )}
       </div>
       <PlotArea>
         <SavingsLineChart points={points} />
       </PlotArea>
+      {hasBalanceData && <TotalLegend hasBalanceData={hasBalanceData} />}
     </div>
   );
 };
@@ -509,6 +537,29 @@ const EmptyState: React.FC = () => (
       No savings data available yet. Your savings graph fills in as budget periods close and leftover
       funded budget accrues.
     </p>
+  </div>
+);
+
+/** Legend for the Total view showing Total Saved and Current Balance indicators. */
+const TotalLegend: React.FC<{ hasBalanceData: boolean }> = ({ hasBalanceData }) => (
+  <div className="flex items-center gap-x-5 gap-y-1.5 flex-wrap mt-4" data-testid="savings-total-legend">
+    <div className="flex items-center gap-2">
+      <span
+        className="w-2.5 h-2.5 rounded-full shrink-0"
+        style={{ backgroundColor: 'var(--color-primary)' }}
+        aria-hidden="true"
+      />
+      <span className="text-xs font-sans text-muted">Total Saved</span>
+    </div>
+    {hasBalanceData && (
+      <div className="flex items-center gap-2">
+        <span
+          className="w-4 h-0 border-b-2 border-dashed border-[#10b981] shrink-0"
+          aria-hidden="true"
+        />
+        <span className="text-xs font-sans text-muted">Current Balance</span>
+      </div>
+    )}
   </div>
 );
 
@@ -545,46 +596,94 @@ const formatAxisDate = (iso: string) => {
 /**
  * Hand-rolled SVG cumulative-savings line chart (total view).
  *
- * Plots exactly one point per data point (Requirements 6.3, 11.8): a connecting
- * polyline, a soft area fill, and a labelled circle marker per point. The Y scale
- * is anchored at 0 (the series is non-negative and non-decreasing), so the line
- * reads as steady upward growth.
+ * Plots the solid accrued savings line ("Total Saved") and optional dashed
+ * available savings balance line ("Current Balance") with area fills and tooltip.
  */
 const SavingsLineChart: React.FC<{ points: TimeSeriesPoint[] }> = ({ points }) => {
   const [hovered, setHovered] = useState<number | null>(null);
 
-  const { linePath, areaPath, plotted, yTicks, maxValue } = useMemo(() => {
+  const {
+    accruedLinePath,
+    balanceLinePath,
+    balanceAreaPath,
+    usedAreaPath,
+    plotted,
+    yTicks,
+    maxValue,
+    hasDivergence,
+  } = useMemo(() => {
     const n = points.length;
     const values = points.map((p) => p.cumulativeBalance);
     const rawMax = Math.max(...values, 0);
     const max = rawMax <= 0 ? 1 : rawMax;
-    const span = max; // baseline anchored at 0 (Requirement 6.1 non-negative)
+    const span = max; // baseline anchored at 0
 
     const xFor = (i: number) =>
       n === 1 ? CHART_PAD.left + CHART_INNER_W / 2 : CHART_PAD.left + (i / (n - 1)) * CHART_INNER_W;
     const yFor = (v: number) => CHART_PAD.top + CHART_INNER_H - (v / span) * CHART_INNER_H;
 
-    const coords = points.map((p, i) => ({ i, x: xFor(i), y: yFor(p.cumulativeBalance), point: p }));
+    const hasDiv = points.some(
+      (p) => p.currentBalance !== undefined && p.currentBalance < p.cumulativeBalance,
+    );
 
-    const line = coords.map((c) => `${c.x},${c.y}`).join(' ');
+    const coords = points.map((p, i) => {
+      const yAccrued = yFor(p.cumulativeBalance);
+      const yBalance = p.currentBalance !== undefined ? yFor(p.currentBalance) : yAccrued;
+      return { i, x: xFor(i), yAccrued, yBalance, point: p };
+    });
+
+    const accruedLine = coords.map((c) => `${c.x},${c.yAccrued}`).join(' ');
+    const balanceLine = coords.map((c) => `${c.x},${c.yBalance}`).join(' ');
+
     const baselineY = CHART_PAD.top + CHART_INNER_H;
-    const area =
+
+    // Area fill below balance line (what is available)
+    const balanceArea =
       coords.length > 0
         ? `M ${coords[0].x},${baselineY} ` +
-          coords.map((c) => `L ${c.x},${c.y}`).join(' ') +
+          coords.map((c) => `L ${c.x},${c.yBalance}`).join(' ') +
           ` L ${coords[coords.length - 1].x},${baselineY} Z`
         : '';
+
+    // Area fill between accrued line and balance line (used zone)
+    let usedArea = '';
+    if (hasDiv && coords.length > 0) {
+      const topForward = coords.map((c) => `L ${c.x},${c.yAccrued}`).join(' ');
+      const bottomBackward = [...coords].reverse().map((c) => `L ${c.x},${c.yBalance}`).join(' ');
+      usedArea = `M ${coords[0].x},${coords[0].yAccrued} ${topForward} ${bottomBackward} Z`;
+    }
 
     const ticks = Array.from({ length: 5 }, (_, k) => {
       const value = (span / 4) * k;
       return { value, y: yFor(value) };
     });
 
-    return { linePath: line, areaPath: area, plotted: coords, yTicks: ticks, maxValue: max };
+    return {
+      accruedLinePath: accruedLine,
+      balanceLinePath: balanceLine,
+      balanceAreaPath: balanceArea,
+      usedAreaPath: usedArea,
+      plotted: coords,
+      yTicks: ticks,
+      maxValue: max,
+      hasDivergence: hasDiv,
+    };
   }, [points]);
 
   const single = plotted.length === 1;
   const hoveredPoint = hovered !== null ? plotted[hovered] : null;
+
+  const latestPoint = points[points.length - 1];
+  const ariaLabel =
+    latestPoint?.currentBalance !== undefined
+      ? `Cumulative savings line chart with ${plotted.length} data ${
+          plotted.length === 1 ? 'point' : 'points'
+        }, latest total saved ${formatPeso(latestPoint.cumulativeBalance)}, current balance ${formatPeso(
+          latestPoint.currentBalance,
+        )}.`
+      : `Cumulative savings line chart with ${plotted.length} data ${
+          plotted.length === 1 ? 'point' : 'points'
+        }, latest total saved ${formatPeso(points[points.length - 1].cumulativeBalance)}.`;
 
   return (
     <div className="relative w-full">
@@ -593,9 +692,7 @@ const SavingsLineChart: React.FC<{ points: TimeSeriesPoint[] }> = ({ points }) =
         className="w-full h-auto"
         style={{ maxHeight: PLOT_MAX_HEIGHT_PX }}
         role="img"
-        aria-label={`Cumulative savings line chart with ${plotted.length} data ${
-          plotted.length === 1 ? 'point' : 'points'
-        }, latest balance ${formatPeso(points[points.length - 1].cumulativeBalance)}.`}
+        aria-label={ariaLabel}
         preserveAspectRatio="xMidYMid meet"
       >
         {/* Horizontal gridlines + Y-axis value labels */}
@@ -623,15 +720,20 @@ const SavingsLineChart: React.FC<{ points: TimeSeriesPoint[] }> = ({ points }) =
           </g>
         ))}
 
-        {/* Area fill under the line */}
-        {!single && areaPath && (
-          <path d={areaPath} fill="var(--color-primary)" className="opacity-10" />
+        {/* Area fill below balance line */}
+        {!single && balanceAreaPath && (
+          <path d={balanceAreaPath} fill="var(--color-primary)" className="opacity-[0.06]" />
         )}
 
-        {/* The savings line */}
+        {/* Area fill between accrued line and balance line (used zone) */}
+        {!single && usedAreaPath && (
+          <path d={usedAreaPath} fill="#10b981" className="opacity-[0.08]" />
+        )}
+
+        {/* Solid accrued line ("Total Saved") */}
         {!single && (
           <polyline
-            points={linePath}
+            points={accruedLinePath}
             fill="none"
             stroke="var(--color-primary)"
             strokeWidth={2.5}
@@ -641,19 +743,40 @@ const SavingsLineChart: React.FC<{ points: TimeSeriesPoint[] }> = ({ points }) =
           />
         )}
 
-        {/* One plotted marker per data point (Requirements 6.3, 11.8) */}
+        {/* Dashed balance line ("Current Balance") */}
+        {!single && hasDivergence && (
+          <polyline
+            points={balanceLinePath}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth={2}
+            strokeDasharray="6 4"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            data-testid="savings-line-balance"
+          />
+        )}
+
+        {/* One plotted marker per data point */}
         {plotted.map((c) => {
           const isHovered = hovered === c.i;
+          const pointAria =
+            c.point.currentBalance !== undefined
+              ? `${formatAxisDate(c.point.periodEnd)}: Total saved ${formatPeso(
+                  c.point.cumulativeBalance,
+                )}, Current ${formatPeso(c.point.currentBalance)}`
+              : `${formatAxisDate(c.point.periodEnd)}: ${formatPeso(c.point.cumulativeBalance)}`;
+
           return (
             <g key={`pt-${c.i}`}>
               <circle
                 cx={c.x}
-                cy={c.y}
+                cy={c.yAccrued}
                 r={14}
                 fill="transparent"
                 tabIndex={0}
                 role="button"
-                aria-label={`${formatAxisDate(c.point.periodEnd)}: ${formatPeso(c.point.cumulativeBalance)}`}
+                aria-label={pointAria}
                 onMouseEnter={() => setHovered(c.i)}
                 onMouseLeave={() => setHovered(null)}
                 onFocus={() => setHovered(c.i)}
@@ -663,13 +786,24 @@ const SavingsLineChart: React.FC<{ points: TimeSeriesPoint[] }> = ({ points }) =
               />
               <circle
                 cx={c.x}
-                cy={c.y}
+                cy={c.yAccrued}
                 r={isHovered ? 5.5 : 3.5}
                 fill="var(--color-surface)"
                 stroke="var(--color-primary)"
                 strokeWidth={2.5}
                 className="pointer-events-none transition-[r] duration-150 ease-out"
               />
+              {hasDivergence && (
+                <circle
+                  cx={c.x}
+                  cy={c.yBalance}
+                  r={isHovered ? 5.5 : 3.5}
+                  fill="var(--color-surface)"
+                  stroke="#10b981"
+                  strokeWidth={2}
+                  className="pointer-events-none transition-[r] duration-150 ease-out"
+                />
+              )}
             </g>
           );
         })}
@@ -718,15 +852,26 @@ const SavingsLineChart: React.FC<{ points: TimeSeriesPoint[] }> = ({ points }) =
       {/* Tooltip for the hovered/focused point */}
       {hoveredPoint && (
         <div
-          className="absolute -translate-x-1/2 -translate-y-full pointer-events-none bg-foreground text-surface text-xs font-sans rounded-lg px-2.5 py-1.5 shadow-lg whitespace-nowrap z-10"
+          className="absolute -translate-x-1/2 -translate-y-full pointer-events-none bg-foreground text-surface text-xs font-sans rounded-xl px-3 py-2 shadow-xl whitespace-nowrap z-10 flex flex-col gap-1 border border-border/20"
           style={{
             left: `${(hoveredPoint.x / CHART_W) * 100}%`,
-            top: `${(hoveredPoint.y / CHART_H) * 100}%`,
+            top: `${(Math.min(hoveredPoint.yAccrued, hoveredPoint.yBalance) / CHART_H) * 100}%`,
           }}
           role="status"
         >
-          <span className="font-mono font-semibold">{formatPeso(hoveredPoint.point.cumulativeBalance)}</span>
-          <span className="opacity-70"> · {formatAxisDate(hoveredPoint.point.periodEnd)}</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="opacity-70 text-[11px]">Total Saved:</span>
+            <span className="font-mono font-semibold">{formatPeso(hoveredPoint.point.cumulativeBalance)}</span>
+          </div>
+          {hoveredPoint.point.currentBalance !== undefined && (
+            <div className="flex items-center justify-between gap-3 text-emerald-400">
+              <span className="opacity-80 text-[11px]">Current:</span>
+              <span className="font-mono font-semibold">{formatPeso(hoveredPoint.point.currentBalance)}</span>
+            </div>
+          )}
+          <div className="text-[10px] opacity-60 text-right border-t border-surface/20 pt-1 mt-0.5">
+            {formatAxisDate(hoveredPoint.point.periodEnd)}
+          </div>
         </div>
       )}
 

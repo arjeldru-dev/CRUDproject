@@ -27,6 +27,29 @@ export interface Release {
 
 export const CHANGELOG: Release[] = [
   {
+    version: '1.9.0',
+    date: '2026-08-06',
+    title: 'See Your Real Savings Balance',
+    summary:
+      'The Savings graph on your Dashboard now shows two lines — how much you\'ve saved in total and how much is still available after spending. No more guessing where your money went.',
+    changes: [
+      {
+        type: 'feature',
+        title: 'Current Balance line on Savings graph',
+        description:
+          'The Savings Over Time graph now draws a second, dashed emerald line for your Current Balance — the money you can still use — alongside the solid Total Saved line. The shaded area between them shows how much you\'ve already spent from savings.',
+        howToUse:
+          'Open your Dashboard and scroll to the Savings graph. The solid line is your Total Saved; the dashed green line is your Current Balance. Hover any point to see both numbers and the date.',
+      },
+      {
+        type: 'fix',
+        title: 'Current Balance now includes today\'s spending',
+        description:
+          'Money spent from savings during the current budget period (before the period closes) now shows up immediately on the graph\'s latest point — previously it only appeared after the period ended, so the graph could show a higher balance than you actually had.',
+      },
+    ],
+  },
+  {
     version: '1.8.0',
     date: '2026-07-24',
     title: 'BudgetBarkada Gets Smarter (AI)',

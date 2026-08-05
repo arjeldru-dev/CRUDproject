@@ -420,15 +420,16 @@ export const getTimeSeries = async (req: Request, res: Response) => {
         );
     }
 
-    const [{ categories, expensesByCategory }, usagesByCategory] = await Promise.all([
+    const [{ categories, expensesByCategory }, releasesByCategory, allUsagesByCategory] = await Promise.all([
       loadUserSavingsData(req.user.id),
       loadReleasesByCategory(req.user.id),
+      loadUsagesByCategory(req.user.id),
     ]);
     // buildTimeSeries returns a discriminated union keyed by `view`:
     //   { view: 'total', points } | { view: 'byCategory', series }.
     // RELEASE usages raise the budget of the period they landed in, so the
-    // release-adjusted accrual series reflects them (spec Rule 5); the usage
-    // offset itself never reduces the series (Requirement 6.6).
+    // release-adjusted accrual series reflects them (spec Rule 5).
+    // allUsagesByCategory computes the currentBalance line for the total view.
     const result = buildTimeSeries(
       categories,
       expensesByCategory,
@@ -436,7 +437,8 @@ export const getTimeSeries = async (req: Request, res: Response) => {
       new Date(),
       tz,
       opts,
-      usagesByCategory,
+      releasesByCategory,
+      allUsagesByCategory,
     );
     return res.status(200).json(result);
   } catch (error) {
