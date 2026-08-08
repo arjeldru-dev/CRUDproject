@@ -16,7 +16,6 @@ export const FramePicker: React.FC = () => {
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const totalPoints = profile?.totalPoints || 0;
   const avatarName = user?.displayName || user?.email || 'User';
 
   const handleEquip = async (frameId: string, frameName: string) => {
@@ -134,7 +133,7 @@ export const FramePicker: React.FC = () => {
                 </button>
               ) : (
                 <span className="text-[10px] font-semibold text-muted bg-surface/80 border border-border-subtle px-2 py-0.5 rounded-md">
-                  {frame.requiresSavings && totalPoints >= frame.pointsRequired
+                  {frame.requiresSavings
                     ? 'Enable savings to unlock'
                     : `Requires ${frame.pointsRequired} pts`}
                 </span>

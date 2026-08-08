@@ -457,7 +457,7 @@ async function main() {
     // New themed frames store the semantic CSS class directly (Avatar.tsx resolves
     // any value starting with `avatar-frame-` as-is; legacy frames keep the Tailwind
     // → semantic lookup). Distinct palettes: rose blush, royal violet+gold, iridescent aurora.
-    { slug: 'blush_piggy', name: 'Piggybank Pride', cssClass: 'avatar-frame-blush', pointsRequired: 400, sortOrder: 7 },
+    { slug: 'blush_piggy', name: 'Piggybank Pride', cssClass: 'avatar-frame-blush', pointsRequired: 0, sortOrder: 7 },
     { slug: 'regal_master', name: 'Budget Master', cssClass: 'avatar-frame-regal', pointsRequired: 900, sortOrder: 8 },
     { slug: 'aurora_vault', name: 'Vault Aura', cssClass: 'avatar-frame-aurora', pointsRequired: 1500, sortOrder: 9 },
   ];
