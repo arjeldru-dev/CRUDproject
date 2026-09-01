@@ -1,0 +1,24 @@
+name: Keep Supabase Alive
+
+on:
+  schedule:
+    # Runs at 00:00 UTC every 3 days (1st, 4th, 7th, 10th... of the month)
+    - cron: '0 0 */3 * *'
+  workflow_dispatch: # Allows manual run at any time from GitHub Actions tab
+
+jobs:
+  ping-supabase:
+    name: Ping Database
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test Database Connection & Execute Query
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "Error: DATABASE_URL secret is not configured in GitHub repository secrets."
+            echo "Please go to Settings -> Secrets and variables -> Actions and add DATABASE_URL."
+            exit 1
+          fi
+          echo "Executing keep-alive query on Supabase..."
+          psql "$DATABASE_URL" -c "SELECT 1 AS keep_alive, NOW() AS pinged_at;"
